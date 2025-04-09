@@ -1,0 +1,9 @@
+[x] RegisterSingleton and Resolve
+[ ] constructors with error returns
+[ ] constructors with multiple parameters
+[ ] list resolutions
+[ ] RegisterTransient and Resolve
+[ ] RegisterScoped, Child and Resolve
+[ ] current Container resolutions
+[ ] injection tokens
+[ ] value registration
