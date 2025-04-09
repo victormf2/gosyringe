@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRegisterSingleton(t *testing.T) {
+func TestRegisterScoped(t *testing.T) {
 	t.Parallel()
 
 	t.Run("should resolve the correct type", func(t *testing.T) {
@@ -36,8 +36,8 @@ func TestRegisterSingleton(t *testing.T) {
 				t.Parallel()
 
 				container := NewContainer()
-				RegisterSingleton[IService](container, tt.constructor)
-				service, err := Resolve[IService](container)
+				RegisterScoped[IService](container, tt.constructor)
+				service, err := Resolve[IService](CreateChildContainer(container))
 				assert.NoError(t, err)
 
 				value := service.GetValue()
@@ -76,7 +76,7 @@ func TestRegisterSingleton(t *testing.T) {
 				var constructorCallCount int
 				var mu sync.Mutex
 
-				RegisterSingleton[IService](c, func() IService {
+				RegisterScoped[IService](c, func() IService {
 					time.Sleep(10 * time.Millisecond)
 					mu.Lock()
 					constructorCallCount++
@@ -86,6 +86,8 @@ func TestRegisterSingleton(t *testing.T) {
 					return service.Interface().(IService)
 				})
 
+				childContainer := CreateChildContainer(c)
+
 				const goroutines = 100
 				var wg sync.WaitGroup
 				results := make(chan IService, goroutines)
@@ -94,7 +96,7 @@ func TestRegisterSingleton(t *testing.T) {
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
-						instance, err := Resolve[IService](c)
+						instance, err := Resolve[IService](childContainer)
 						assert.NoError(t, err, "resolve failed")
 
 						results <- instance
@@ -123,11 +125,11 @@ func TestRegisterSingleton(t *testing.T) {
 
 		c := NewContainer()
 
-		RegisterSingleton[IService](c, NewServiceError)
-		RegisterSingleton[IService](c, NewService)
-		RegisterSingleton[IService](c, NewOtherService)
+		RegisterScoped[IService](c, NewServiceError)
+		RegisterScoped[IService](c, NewService)
+		RegisterScoped[IService](c, NewOtherService)
 
-		service, err := Resolve[IService](c)
+		service, err := Resolve[IService](CreateChildContainer(c))
 		assert.NoError(t, err)
 
 		value := service.GetValue()
@@ -190,28 +192,17 @@ func TestRegisterSingleton(t *testing.T) {
 
 				c := NewContainer()
 
-				RegisterSingleton[IService](c, tt.constructor)
+				RegisterScoped[IService](c, tt.constructor)
 			})
 		}
 
-	})
-
-	t.Run("should panic when registering Singleton from child container", func(t *testing.T) {
-
-		defer func() {
-			actualPanic := recover()
-			assert.Equal(t, "Singletons can only be registered at a root container: gosyringe.IService", actualPanic)
-		}()
-
-		c := CreateChildContainer(NewContainer())
-		RegisterSingleton[IService](c, NewService)
 	})
 
 	t.Run("should accept custom error return", func(t *testing.T) {
 		t.Parallel()
 
 		c := NewContainer()
-		RegisterSingleton[IService](c, func() (IService, *CustomError) {
+		RegisterScoped[IService](c, func() (IService, *CustomError) {
 			return NewService(), nil
 		})
 	})
@@ -220,21 +211,21 @@ func TestRegisterSingleton(t *testing.T) {
 		t.Parallel()
 
 		c := NewContainer()
-		RegisterSingleton[IService](c, NewServiceError)
+		RegisterScoped[IService](c, NewServiceError)
 
-		_, err := Resolve[IService](c)
+		_, err := Resolve[IService](CreateChildContainer(c))
 
 		assert.ErrorIs(t, err, customError)
 	})
 
 	t.Run("should resolve constructor with multiple parameters", func(t *testing.T) {
 		c := NewContainer()
-		RegisterSingleton[IServiceOne](c, NewServiceOne)
-		RegisterSingleton[IServiceTwo](c, NewServiceTwo)
-		RegisterSingleton[IServiceThree](c, NewServiceThree)
-		RegisterSingleton[IServiceFive](c, NewServiceFive)
+		RegisterScoped[IServiceOne](c, NewServiceOne)
+		RegisterScoped[IServiceTwo](c, NewServiceTwo)
+		RegisterScoped[IServiceThree](c, NewServiceThree)
+		RegisterScoped[IServiceFive](c, NewServiceFive)
 
-		service, err := Resolve[IServiceFive](c)
+		service, err := Resolve[IServiceFive](CreateChildContainer(c))
 
 		assert.NoError(t, err)
 		assert.Equal(t, 5, service.GetValueFive())
@@ -247,10 +238,10 @@ func TestRegisterSingleton(t *testing.T) {
 			t.Parallel()
 
 			c := NewContainer()
-			RegisterSingleton[IService](c, NewService)
-			RegisterSingleton[IService](c, NewServiceUnsafe)
-			RegisterSingleton[IService](c, NewOtherService)
-			services, err := Resolve[[]IService](c)
+			RegisterScoped[IService](c, NewService)
+			RegisterScoped[IService](c, NewServiceUnsafe)
+			RegisterScoped[IService](c, NewOtherService)
+			services, err := Resolve[[]IService](CreateChildContainer(c))
 			assert.NoError(t, err)
 
 			value := 0
@@ -279,7 +270,7 @@ func TestRegisterSingleton(t *testing.T) {
 
 			for i := range 3 {
 				i := i
-				RegisterSingleton[IService](c, func() IService {
+				RegisterScoped[IService](c, func() IService {
 					time.Sleep(10 * time.Millisecond)
 					mu.Lock()
 					constructorCallCount[i]++
@@ -290,6 +281,8 @@ func TestRegisterSingleton(t *testing.T) {
 				})
 			}
 
+			childContainer := CreateChildContainer(c)
+
 			const goroutines = 100
 			var wg sync.WaitGroup
 			results := make(chan []IService, goroutines)
@@ -298,7 +291,7 @@ func TestRegisterSingleton(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					instance, err := Resolve[[]IService](c)
+					instance, err := Resolve[[]IService](childContainer)
 					assert.NoError(t, err, "resolve failed")
 
 					results <- instance
@@ -329,11 +322,11 @@ func TestRegisterSingleton(t *testing.T) {
 
 			c := NewContainer()
 
-			RegisterSingleton[IService](c, NewService)
-			RegisterSingleton[IService](c, NewOtherService)
-			RegisterSingleton[MultiServiceInjection](c, NewMultiServiceInjection)
+			RegisterScoped[IService](c, NewService)
+			RegisterScoped[IService](c, NewOtherService)
+			RegisterScoped[MultiServiceInjection](c, NewMultiServiceInjection)
 
-			multiService, err := Resolve[MultiServiceInjection](c)
+			multiService, err := Resolve[MultiServiceInjection](CreateChildContainer(c))
 			assert.NoError(t, err)
 
 			values := multiService.GetMultiValue()
@@ -344,10 +337,10 @@ func TestRegisterSingleton(t *testing.T) {
 			t.Parallel()
 
 			c := NewContainer()
-			RegisterSingleton[IService](c, NewService)
-			RegisterSingleton[IService](c, NewServiceError)
+			RegisterScoped[IService](c, NewService)
+			RegisterScoped[IService](c, NewServiceError)
 
-			_, err := Resolve[[]IService](c)
+			_, err := Resolve[[]IService](CreateChildContainer(c))
 
 			assert.ErrorIs(t, err, customError)
 		})
@@ -357,10 +350,45 @@ func TestRegisterSingleton(t *testing.T) {
 		t.Parallel()
 
 		c := NewContainer()
-		RegisterSingleton[IService](c, NewSeeminglyHarmlessService)
-		RegisterSingleton[CircularDependency](c, NewCircularDependency)
+		RegisterScoped[IService](c, NewSeeminglyHarmlessService)
+		RegisterScoped[CircularDependency](c, NewCircularDependency)
+
+		_, err := Resolve[IService](CreateChildContainer(c))
+		assert.EqualError(t, err, "circular dependency detected: gosyringe.IService -> gosyringe.CircularDependency -> gosyringe.IService")
+	})
+
+	t.Run("should not allow resolution from root container", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewContainer()
+		RegisterScoped[IService](c, NewService)
 
 		_, err := Resolve[IService](c)
-		assert.EqualError(t, err, "circular dependency detected: gosyringe.IService -> gosyringe.CircularDependency -> gosyringe.IService")
+
+		assert.EqualError(t, err, "cannot resolve Scoped dependencies from the root Container: gosyringe.IService")
+	})
+
+	t.Run("child container registrations take precedence", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewContainer()
+		RegisterTransient[IService](c, NewService)
+
+		childContainer := CreateChildContainer(c)
+		RegisterScoped[IService](childContainer, NewOtherService)
+
+		grandChildContainer := CreateChildContainer(childContainer)
+		RegisterScoped[IService](grandChildContainer, NewService)
+
+		serviceRoot, err := Resolve[IService](c)
+		assert.NoError(t, err)
+		serviceChild, err := Resolve[IService](childContainer)
+		assert.NoError(t, err)
+		serviceGrandChild, err := Resolve[IService](grandChildContainer)
+		assert.NoError(t, err)
+
+		assert.Equal(t, 12, serviceRoot.GetValue())
+		assert.Equal(t, 13, serviceChild.GetValue())
+		assert.Equal(t, 12, serviceGrandChild.GetValue())
 	})
 }
