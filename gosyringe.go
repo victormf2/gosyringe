@@ -19,7 +19,7 @@ func NewContainer() *Container {
 	}
 }
 
-func RegisterSingleton(c *Container, constructor any) {
+func RegisterSingleton[T any](c *Container, constructor any) {
 	reflectedConstructor := reflect.ValueOf(constructor)
 	constructorType := reflectedConstructor.Type()
 
@@ -35,17 +35,35 @@ func RegisterSingleton(c *Container, constructor any) {
 	}
 
 	dependencyType := constructorType.Out(0)
+	registerType := reflect.TypeFor[T]()
+
+	if dependencyType != registerType {
+		panic(fmt.Sprintf("the type parameter %v is not the same as the return type of the constructor %v", registerType, dependencyType))
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.registry[dependencyType] = reflectedConstructor
+	resolveRegistry[dependencyType] = reflect.ValueOf(Resolve[T])
 }
 
+var resolveRegistry = map[reflect.Type]reflect.Value{}
+var resolutionLocks = map[reflect.Type]*sync.Mutex{}
+
 func Resolve[T any](c *Container) (T, error) {
+	var zero T
 	typeOfT := reflect.TypeFor[T]()
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	resolutionLock, found := resolutionLocks[typeOfT]
+	if !found {
+		resolutionLock = &sync.Mutex{}
+		resolutionLocks[typeOfT] = resolutionLock
+	}
+	c.mu.Unlock()
+
+	resolutionLock.Lock()
+	defer resolutionLock.Unlock()
 
 	instance, foundInstance := c.instances[typeOfT]
 	if foundInstance {
@@ -54,23 +72,40 @@ func Resolve[T any](c *Container) (T, error) {
 
 	constructor, foundConstructor := c.registry[typeOfT]
 	if !foundConstructor {
-		var zero T
 		return zero, fmt.Errorf("no constructor registered for type %v", typeOfT)
 	}
 
-	result := constructor.Call(nil)
+	constructorType := constructor.Type()
+	numberOfArguments := constructorType.NumIn()
+	callArguments := make([]reflect.Value, numberOfArguments)
+	for argumentIndex := range numberOfArguments {
+		argumentType := constructorType.In(argumentIndex)
+		reflectedResolve, found := resolveRegistry[argumentType]
+		if !found {
+			return zero, fmt.Errorf("failed to resolve argument %v of constructor of type %v: no constructor registered for type %v", argumentIndex, typeOfT, argumentType)
+		}
+		argumentResolutionResult := reflectedResolve.Call([]reflect.Value{reflect.ValueOf(c)})
+		argumentValue := argumentResolutionResult[0]
+		if len(argumentResolutionResult) == 2 {
+			err := argumentResolutionResult[1].Interface()
+			if err != nil {
+				return zero, fmt.Errorf("failed to resolve argument %v of constructor of type %v: %w", argumentIndex, typeOfT, err.(error))
+			}
+		}
+		callArguments[argumentIndex] = argumentValue
+	}
 
-	value := result[0]
+	resolutionResult := constructor.Call(callArguments)
 
-	if len(result) == 1 {
-		c.instances[typeOfT] = value
-	} else {
-		err := result[1].Interface().(error)
+	value := resolutionResult[0]
+
+	if len(resolutionResult) == 2 {
+		err := resolutionResult[1].Interface()
 		if err != nil {
-			var zero T
-			return zero, fmt.Errorf("failed to resolve a value for type %v: %w", typeOfT, err)
+			return zero, fmt.Errorf("failed to resolve a value for type %v: %w", typeOfT, err.(error))
 		}
 	}
+	c.instances[typeOfT] = value
 
 	return value.Interface().(T), nil
 }

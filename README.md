@@ -69,8 +69,8 @@ func (r SomethingRepository) SaveSomething(something Something) error {
 func main() {
 	c := gosyringe.NewContainer()
 
-	gosyringe.RegisterSingleton(c, NewService)
-	gosyringe.RegisterSingleton(c, NewSomethingReposiory)
+	gosyringe.RegisterSingleton[IService](c, NewService)
+	gosyringe.RegisterSingleton[ISomethingRepository](c, NewSomethingReposiory)
 
 	service, err := gosyringe.Resolve[IService](c)
 	if err != nil {
