@@ -3,7 +3,7 @@
 [x] constructors with multiple parameters
 [x] list resolutions
 [x] circular dependency detection
-[ ] RegisterTransient and Resolve
+[x] RegisterTransient and Resolve
 [ ] RegisterScoped, Child and Resolve
 [ ] current Container resolutions
 [ ] injection tokens

@@ -26,7 +26,7 @@ type Container struct {
 	// We allow multiple constructors per resolution type, because we want to be able
 	// to resolve slices of dependencies of the same type, and to override registrations
 	// as well.
-	registry map[reflect.Type][]reflect.Value
+	registry map[reflect.Type]*dependencyRegistration
 	// Here is where the resolved instances are stored. You can think of it as a cache.
 	// Singleton and Scoped resolutions rely on this to work.
 	instances map[reflect.Type]reflect.Value
@@ -35,13 +35,64 @@ type Container struct {
 	resolutionLocks map[reflect.Type]*sync.Mutex
 }
 
+type dependencyRegistration struct {
+	scope        dependencyScope
+	constructors []reflect.Value
+}
+
+type dependencyScope int
+
+const (
+	Transient dependencyScope = iota + 1
+	Scoped                    = 2
+	Singleton                 = 3
+)
+
+func (s dependencyScope) String() string {
+	switch s {
+	case Transient:
+		return "Transient"
+	case Scoped:
+		return "Scoped"
+	case Singleton:
+		return "Singleton"
+	default:
+		return "Unknown"
+	}
+}
+
 // Instantiates a new root Container.
 func NewContainer() *Container {
 	return &Container{
-		registry:        make(map[reflect.Type][]reflect.Value),
+		registry:        make(map[reflect.Type]*dependencyRegistration),
 		instances:       make(map[reflect.Type]reflect.Value),
 		resolutionLocks: map[reflect.Type]*sync.Mutex{},
 	}
+}
+
+// Registers a dependency for the type T as Transient, providing a constructor as resolution method.
+//
+// Multiple calls to Resolve on a dependency registered as Transient always return a new instance.
+//
+// constructor must be a function returning exactly one value or a (value, error) tuple.
+// The type of the return value must be exactly equal to the type parameter T.
+//
+// If RegisterTransient is called multiple times, the last registration is considered for resolution.
+func RegisterTransient[T any](c *Container, constructor any) {
+	register[T](c, constructor, Transient)
+}
+
+// Registers a dependency for the type T as Singleton, providing a constructor as resolution method.
+//
+// Multiple calls to Resolve on a dependency registered as Singleton are guaranteed to return
+// the same instance in the Container lifetime.
+//
+// constructor must be a function returning exactly one value or a (value, error) tuple.
+// The type of the return value must be exactly equal to the type parameter T.
+//
+// If RegisterSingleton is called multiple times, the last registration is considered for resolution.
+func RegisterSingleton[T any](c *Container, constructor any) {
+	register[T](c, constructor, Singleton)
 }
 
 // Global mutex to control concurrency over resolve functions registry.
@@ -56,16 +107,7 @@ var mu sync.Mutex
 // parameter in the register functions.
 var resolveFunctionsRegistry = map[reflect.Type]reflect.Value{}
 
-// Registers a dependency for the type T as a Singleton, providing a constructor as resolution method.
-//
-// A Resolve call to a dependency registered as Singleton is guaranteed to return
-// the same instance in the Container lifetime.
-//
-// constructor must be a function returning exactly one value or a (value, error) tuple.
-// The type of the return value must be exactly equal to the type parameter T.
-//
-// If this is called multiple times, the last registration is considered for resolution.
-func RegisterSingleton[T any](c *Container, constructor any) {
+func register[T any](c *Container, constructor any, scope dependencyScope) {
 	reflectedConstructor := reflect.ValueOf(constructor)
 	constructorType := reflectedConstructor.Type()
 
@@ -93,9 +135,16 @@ func RegisterSingleton[T any](c *Container, constructor any) {
 	defer c.mu.Unlock()
 
 	if c.registry[dependencyType] == nil {
-		c.registry[dependencyType] = []reflect.Value{}
+		c.registry[dependencyType] = &dependencyRegistration{
+			scope:        scope,
+			constructors: []reflect.Value{},
+		}
 	}
-	c.registry[dependencyType] = append(c.registry[dependencyType], reflectedConstructor)
+
+	if c.registry[dependencyType].scope != scope {
+		panic(fmt.Sprintf("cannot register type %v as %v, because it was already registered as %v", dependencyType, scope, c.registry[dependencyType].scope))
+	}
+	c.registry[dependencyType].constructors = append(c.registry[dependencyType].constructors, reflectedConstructor)
 
 	// Here we lock globally, because the resolveFunctionsRegistry is global.
 	// We use the resolveFunctionsRegistry to retrieve the generic function instance
@@ -180,19 +229,23 @@ func resolve[T any](c *Container, parentResolutionContext resolutionContext) (T,
 	resolutionLock.Lock()
 	defer resolutionLock.Unlock()
 
-	// Checking if an instance is already in the cache
-	instance, foundInstance := c.instances[resolutionType]
-	if foundInstance {
-		return instance.Interface().(T), nil
-	}
-
 	// Checking if there is a registration for elementType.
 	// Here elementType is used instead of resolutionType, because we
 	// don't expect calls to RegisterXxx[[]T].
-	constructors, foundConstructors := c.registry[elementType]
-	if !foundConstructors || len(constructors) == 0 {
+	dependencyRegistration, foundDependencyRegistration := c.registry[elementType]
+	if !foundDependencyRegistration || len(dependencyRegistration.constructors) == 0 {
 		return zero, fmt.Errorf("no constructor registered for type %v", elementType)
 	}
+
+	// Checking if an instance is already in the cache
+	if dependencyRegistration.scope == Singleton {
+		instance, foundInstance := c.instances[resolutionType]
+		if foundInstance {
+			return instance.Interface().(T), nil
+		}
+	}
+
+	constructors := dependencyRegistration.constructors
 
 	if isSlice {
 		// When resolutionType is a slice, we resolve all registered dependencies for it,
@@ -207,7 +260,9 @@ func resolve[T any](c *Container, parentResolutionContext resolutionContext) (T,
 			sliceValue.Index(constructorIndex).Set(value)
 		}
 
-		c.instances[resolutionType] = sliceValue
+		if dependencyRegistration.scope == Singleton {
+			c.instances[resolutionType] = sliceValue
+		}
 
 		return sliceValue.Interface().(T), nil
 	} else {
@@ -219,7 +274,9 @@ func resolve[T any](c *Container, parentResolutionContext resolutionContext) (T,
 			return zero, err
 		}
 
-		c.instances[resolutionType] = value
+		if dependencyRegistration.scope == Singleton {
+			c.instances[resolutionType] = value
+		}
 
 		return value.Interface().(T), nil
 	}

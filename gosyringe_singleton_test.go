@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -157,14 +158,14 @@ func TestRegisterSingleton(t *testing.T) {
 			{
 				name: "2nd return value not error",
 				constructor: func() (IService, IService) {
-					return &Service{}, &Service{}
+					return NewService(), NewService()
 				},
 				expectedPanic: "constructor must be a function returning exactly one value, or a value and an error",
 			},
 			{
 				name: "more than 2 return values",
 				constructor: func() (IService, IService, error) {
-					return &Service{}, &Service{}, fmt.Errorf("some error")
+					return NewService(), NewService(), fmt.Errorf("some error")
 				},
 				expectedPanic: "constructor must be a function returning exactly one value, or a value and an error",
 			},
@@ -201,7 +202,7 @@ func TestRegisterSingleton(t *testing.T) {
 
 		c := NewContainer()
 		RegisterSingleton[IService](c, func() (IService, *CustomError) {
-			return &Service{}, nil
+			return NewService(), nil
 		})
 	})
 
@@ -357,16 +358,20 @@ func TestRegisterSingleton(t *testing.T) {
 type IService interface {
 	GetValue() int
 }
-type Service struct{}
+type Service struct {
+	value string
+}
 
 func (s Service) GetValue() int {
 	return 12
 }
 func NewService() IService {
-	return &Service{}
+	return &Service{
+		value: uuid.NewString(),
+	}
 }
 func NewServiceUnsafe() (IService, error) {
-	return &Service{}, nil
+	return &Service{value: uuid.NewString()}, nil
 }
 
 type CustomError struct{}
