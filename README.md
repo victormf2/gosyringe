@@ -96,7 +96,7 @@ func main() {
 }
 ```
 
-## Scopes
+## Dependency Lifetimes
 
 ### Transient
 
@@ -109,3 +109,61 @@ func main() {
 ### Single
 
 ### Slice
+
+### Injection tokens
+
+Injection tokens are a way to enable us to register different constructors for the same type or interface. In other dependency injection frameworks it's usually done by providing a value (e.g. a string like "MyServiceToken") which maps to a constructor. Different values can provide the same instance type.
+
+But in Go there is another option called [Type Definitions](https://go.dev/ref/spec#Type_definitions). Although it's more a Go feature itself than gosyringe, it is worth pointing out it's possible.
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/victormf2/gosyringe"
+)
+
+type IService interface {
+	GetSomething() string
+}
+
+// This is the Type Definitions syntax.
+// For Go, IOneService and IAnotherService are two distinct types.
+// So when we call Resolve[IOneService] we get a different instance
+// from Resolve[IAnotherService]
+type IOneService IService
+type IAnotherService IService
+
+type OneService struct{}
+
+func NewOneService() IOneService {
+	return &OneService{}
+}
+func (s *OneService) GetSomething() string {
+	return "one"
+}
+
+type AnotherService struct{}
+
+func NewAnotherService() IAnotherService {
+	return &AnotherService{}
+}
+func (s *AnotherService) GetSomething() string {
+	return "another"
+}
+
+func main() {
+	c := gosyringe.NewContainer()
+
+	gosyringe.RegisterSingleton[IOneService](c, NewOneService)
+	gosyringe.RegisterSingleton[IAnotherService](c, NewAnotherService)
+
+	oneService, _ := gosyringe.Resolve[IOneService](c)
+	anotherService, _ := gosyringe.Resolve[IAnotherService](c)
+
+	fmt.Println(oneService.GetSomething())     // one
+	fmt.Println(anotherService.GetSomething()) // another
+}
+```

@@ -28,8 +28,8 @@ type Container struct {
 	// Here is where the resolved instances are stored. You can think of it as a cache.
 	// Singleton and Scoped resolutions rely on this to work.
 	instances *internal.SyncMap[reflect.Type, reflect.Value]
-	// Resolution locks are necessary because nested calls to resolve results in a dead lock
-	// if we use the Container mutex only.
+	// Resolution locks are necessary because nested calls to resolve results in multiple
+	// instances resolved for a Singleton.
 	resolutionLocks *internal.SyncMap[reflect.Type, *sync.Mutex]
 	// If this Container was created with CreateChildContainer, then the parent will be
 	// the Container which received the call. This is supposed to be used together with
@@ -152,7 +152,7 @@ func RegisterSingleton[T any](c *Container, constructor any) {
 // limitation by storing the references of the functions and retrieving them later
 // by their reflection type. This is also why we need to provide a type
 // parameter in the register functions.
-var resolveFunctionsRegistry = internal.NewSyncMap[reflect.Type, reflect.Value](
+var resolveFunctionsRegistry = internal.NewSyncMap(
 	internal.KeyValue[reflect.Type, reflect.Value]{
 		Key: reflect.TypeFor[*Container](),
 		Value: reflect.ValueOf(func(c *Container, parentResolutionContext resolutionContext) (*Container, error) {
@@ -281,8 +281,7 @@ func resolve[T any](c *Container, parentResolutionContext resolutionContext) (T,
 
 	resolutionLock, _ := c.resolutionLocks.LoadOrStore(requestedResolutionType, &sync.Mutex{})
 
-	// By acquiring a lock per resolution type we prevent dead locks
-	// on 2+ level deep dependency resolution
+	// By acquiring a lock per resolution type we prevent multiple Singleton instances
 	resolutionLock.Lock()
 	defer resolutionLock.Unlock()
 
