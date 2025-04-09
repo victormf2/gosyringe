@@ -23,8 +23,15 @@ func RegisterSingleton(c *Container, constructor any) {
 	reflectedConstructor := reflect.ValueOf(constructor)
 	constructorType := reflectedConstructor.Type()
 
-	if constructorType.Kind() != reflect.Func || constructorType.NumOut() != 1 {
-		panic("constructor must be a function returning exactly one value")
+	if constructorType.Kind() != reflect.Func || constructorType.NumOut() < 1 || constructorType.NumOut() > 2 {
+		panic("constructor must be a function returning exactly one value, or a value and an error")
+	}
+
+	if constructorType.NumOut() == 2 {
+		errorType := constructorType.Out(1)
+		if !errorType.AssignableTo(reflect.TypeFor[error]()) {
+			panic("constructor must be a function returning exactly one value, or a value and an error")
+		}
 	}
 
 	dependencyType := constructorType.Out(0)
@@ -35,24 +42,35 @@ func RegisterSingleton(c *Container, constructor any) {
 }
 
 func Resolve[T any](c *Container) (T, error) {
-	typeOfT := reflect.TypeOf((*T)(nil)).Elem()
+	typeOfT := reflect.TypeFor[T]()
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	instance, found := c.instances[typeOfT]
-	if found {
+	instance, foundInstance := c.instances[typeOfT]
+	if foundInstance {
 		return instance.Interface().(T), nil
 	}
 
-	constructor, ok := c.registry[typeOfT]
-	if !ok {
+	constructor, foundConstructor := c.registry[typeOfT]
+	if !foundConstructor {
 		var zero T
 		return zero, fmt.Errorf("no constructor registered for type %v", typeOfT)
 	}
 
-	result := constructor.Call(nil)[0]
-	c.instances[typeOfT] = result
+	result := constructor.Call(nil)
 
-	return result.Interface().(T), nil
+	value := result[0]
+
+	if len(result) == 1 {
+		c.instances[typeOfT] = value
+	} else {
+		err := result[1].Interface().(error)
+		if err != nil {
+			var zero T
+			return zero, fmt.Errorf("failed to resolve a value for type %v: %w", typeOfT, err)
+		}
+	}
+
+	return value.Interface().(T), nil
 }

@@ -1,5 +1,5 @@
 [x] RegisterSingleton and Resolve
-[ ] constructors with error returns
+[x] constructors with error returns
 [ ] constructors with multiple parameters
 [ ] list resolutions
 [ ] RegisterTransient and Resolve
