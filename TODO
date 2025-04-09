@@ -5,6 +5,6 @@
 [x] circular dependency detection
 [x] RegisterTransient and Resolve
 [x] RegisterScoped, Child and Resolve
-[ ] current Container resolutions
+[x] current Container resolutions
 [ ] injection tokens
 [ ] value registration

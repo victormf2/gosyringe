@@ -66,6 +66,7 @@ func TestCombineScopes(t *testing.T) {
 			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
+
 				c := NewContainer()
 
 				defer func() {
@@ -84,6 +85,7 @@ func TestCombineScopes(t *testing.T) {
 
 		t.Run("can inject Transient into Transient", func(t *testing.T) {
 			t.Parallel()
+
 			c := NewContainer()
 			RegisterTransient[Injecting](c, NewInjecting)
 			RegisterTransient[ReceivingInjection](c, NewReceivingInjection)
@@ -93,6 +95,7 @@ func TestCombineScopes(t *testing.T) {
 		})
 		t.Run("should not inject Scoped into Transient", func(t *testing.T) {
 			t.Parallel()
+
 			c := NewContainer()
 			RegisterScoped[Injecting](c, NewInjecting)
 			RegisterTransient[ReceivingInjection](c, NewReceivingInjection)
@@ -102,6 +105,7 @@ func TestCombineScopes(t *testing.T) {
 		})
 		t.Run("can inject Singleton into Transient", func(t *testing.T) {
 			t.Parallel()
+
 			c := NewContainer()
 			RegisterSingleton[Injecting](c, NewInjecting)
 			RegisterTransient[ReceivingInjection](c, NewReceivingInjection)
@@ -112,6 +116,7 @@ func TestCombineScopes(t *testing.T) {
 
 		t.Run("can inject Transient into Scoped", func(t *testing.T) {
 			t.Parallel()
+
 			c := NewContainer()
 			RegisterTransient[Injecting](c, NewInjecting)
 			RegisterScoped[ReceivingInjection](c, NewReceivingInjection)
@@ -121,6 +126,7 @@ func TestCombineScopes(t *testing.T) {
 		})
 		t.Run("can inject Scoped into Scoped", func(t *testing.T) {
 			t.Parallel()
+
 			c := NewContainer()
 			RegisterScoped[Injecting](c, NewInjecting)
 			RegisterScoped[ReceivingInjection](c, NewReceivingInjection)
@@ -130,6 +136,7 @@ func TestCombineScopes(t *testing.T) {
 		})
 		t.Run("can inject Singleton into Scoped", func(t *testing.T) {
 			t.Parallel()
+
 			c := NewContainer()
 			RegisterSingleton[Injecting](c, NewInjecting)
 			RegisterScoped[ReceivingInjection](c, NewReceivingInjection)
@@ -140,6 +147,7 @@ func TestCombineScopes(t *testing.T) {
 
 		t.Run("should not inject Transient into Singleton", func(t *testing.T) {
 			t.Parallel()
+
 			c := NewContainer()
 			RegisterTransient[Injecting](c, NewInjecting)
 			RegisterSingleton[ReceivingInjection](c, NewReceivingInjection)
@@ -149,6 +157,7 @@ func TestCombineScopes(t *testing.T) {
 		})
 		t.Run("should not inject Scoped into Singleton", func(t *testing.T) {
 			t.Parallel()
+
 			c := NewContainer()
 			RegisterScoped[Injecting](c, NewInjecting)
 			RegisterSingleton[ReceivingInjection](c, NewReceivingInjection)
@@ -157,8 +166,8 @@ func TestCombineScopes(t *testing.T) {
 			assert.Error(t, err)
 		})
 		t.Run("can inject Singleton into Singleton", func(t *testing.T) {
-
 			t.Parallel()
+
 			c := NewContainer()
 			RegisterSingleton[Injecting](c, NewInjecting)
 			RegisterSingleton[ReceivingInjection](c, NewReceivingInjection)
@@ -169,6 +178,8 @@ func TestCombineScopes(t *testing.T) {
 	})
 
 	t.Run("simulate real application services", func(t *testing.T) {
+		t.Parallel()
+
 		c := NewContainer()
 
 		RegisterSingleton[ISomeSingletonExternalService](c, NewSomeSingletonExternalService)
