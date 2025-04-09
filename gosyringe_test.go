@@ -118,6 +118,24 @@ func TestRegisterSingleton(t *testing.T) {
 		}
 	})
 
+	t.Run("should resolve the last registered instance", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewContainer()
+
+		RegisterSingleton[IService](c, NewServiceError)
+		RegisterSingleton[IService](c, NewService)
+		RegisterSingleton[IService](c, NewOtherService)
+
+		service, err := Resolve[IService](c)
+		assert.NoError(t, err)
+
+		value := service.GetValue()
+
+		assert.IsType(t, &OtherService{}, service)
+		assert.Equal(t, 13, value)
+	})
+
 	t.Run("should panic with invalid constructor", func(t *testing.T) {
 		t.Parallel()
 
@@ -191,9 +209,7 @@ func TestRegisterSingleton(t *testing.T) {
 		t.Parallel()
 
 		c := NewContainer()
-		RegisterSingleton[IService](c, func() (IService, error) {
-			return nil, customError
-		})
+		RegisterSingleton[IService](c, NewServiceError)
 
 		_, err := Resolve[IService](c)
 
@@ -211,6 +227,119 @@ func TestRegisterSingleton(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, 5, service.GetValueFive())
+	})
+
+	t.Run("with slice resolution", func(t *testing.T) {
+		t.Parallel()
+
+		t.Run("should resolve the correct type", func(t *testing.T) {
+			t.Parallel()
+
+			c := NewContainer()
+			RegisterSingleton[IService](c, NewService)
+			RegisterSingleton[IService](c, NewServiceUnsafe)
+			RegisterSingleton[IService](c, NewOtherService)
+			services, err := Resolve[[]IService](c)
+			assert.NoError(t, err)
+
+			value := 0
+			for _, service := range services {
+				value += service.GetValue()
+			}
+
+			assert.IsType(t, &Service{}, services[0])
+			assert.IsType(t, &Service{}, services[1])
+			assert.IsType(t, &OtherService{}, services[2])
+			assert.Equal(t, 37, value)
+		})
+
+		t.Run("should resolve a single instance", func(t *testing.T) {
+			t.Parallel()
+
+			c := NewContainer()
+
+			constructorCallCount := [3]int{}
+			constructors := [3]any{
+				NewService,
+				NewOtherService,
+				NewServiceUnsafe,
+			}
+			var mu sync.Mutex
+
+			for i := range 3 {
+				i := i
+				RegisterSingleton[IService](c, func() IService {
+					time.Sleep(10 * time.Millisecond)
+					mu.Lock()
+					constructorCallCount[i]++
+					mu.Unlock()
+
+					service := reflect.ValueOf(constructors[i]).Call(nil)[0]
+					return service.Interface().(IService)
+				})
+			}
+
+			const goroutines = 100
+			var wg sync.WaitGroup
+			results := make(chan []IService, goroutines)
+
+			for range goroutines {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					instance, err := Resolve[[]IService](c)
+					assert.NoError(t, err, "resolve failed")
+
+					results <- instance
+				}()
+			}
+
+			wg.Wait()
+			close(results)
+
+			var firstInstance []IService
+			for instance := range results {
+				if firstInstance == nil {
+					firstInstance = instance
+				} else if !reflect.DeepEqual(instance, firstInstance) {
+					t.Errorf("expected same instance, got different ones")
+				}
+			}
+
+			assert.Len(t, firstInstance, 3)
+
+			assert.Equal(t, 1, constructorCallCount[0])
+			assert.Equal(t, 1, constructorCallCount[1])
+			assert.Equal(t, 1, constructorCallCount[2])
+		})
+
+		t.Run("should work as parameter injection", func(t *testing.T) {
+			t.Parallel()
+
+			c := NewContainer()
+
+			RegisterSingleton[IService](c, NewService)
+			RegisterSingleton[IService](c, NewOtherService)
+			RegisterSingleton[MultiServiceInjection](c, NewMultiServiceInjection)
+
+			multiService, err := Resolve[MultiServiceInjection](c)
+			assert.NoError(t, err)
+
+			values := multiService.GetMultiValue()
+			assert.Equal(t, []int{12, 13}, values)
+		})
+
+		t.Run("should return error on Resolve", func(t *testing.T) {
+			t.Parallel()
+
+			c := NewContainer()
+			RegisterSingleton[IService](c, NewService)
+			RegisterSingleton[IService](c, NewServiceError)
+
+			_, err := Resolve[[]IService](c)
+
+			assert.ErrorIs(t, err, customError)
+		})
 	})
 }
 
@@ -236,6 +365,19 @@ func (c CustomError) Error() string {
 }
 
 var customError = &CustomError{}
+
+func NewServiceError() (IService, error) {
+	return nil, customError
+}
+
+type OtherService struct{}
+
+func (s OtherService) GetValue() int {
+	return 13
+}
+func NewOtherService() IService {
+	return &OtherService{}
+}
 
 type IServiceOne interface {
 	GetValueOne() int
@@ -299,4 +441,21 @@ func NewServiceFive(serviceOne IServiceTwo, serviceThree IServiceThree) IService
 
 func (s ServiceFive) GetValueFive() int {
 	return s.serviceTwo.GetValueTwo() + s.serviceThree.GetValueThree()
+}
+
+type MultiServiceInjection struct {
+	services []IService
+}
+
+func NewMultiServiceInjection(services []IService) MultiServiceInjection {
+	return MultiServiceInjection{
+		services,
+	}
+}
+func (m MultiServiceInjection) GetMultiValue() []int {
+	values := []int{}
+	for _, service := range m.services {
+		values = append(values, service.GetValue())
+	}
+	return values
 }

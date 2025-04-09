@@ -1,7 +1,7 @@
 [x] RegisterSingleton and Resolve
 [x] constructors with error returns
 [x] constructors with multiple parameters
-[ ] list resolutions
+[x] list resolutions
 [ ] circular dependency detection
 [ ] RegisterTransient and Resolve
 [ ] RegisterScoped, Child and Resolve
