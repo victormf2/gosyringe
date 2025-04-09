@@ -2,6 +2,14 @@
 
 gosyringe is a depency injection library for Go inspired in [tsyringe](https://github.com/microsoft/tsyringe).
 
+## Dependency injection in Go? Why do I need this?
+
+Well, if you don't want to waste your time setting up your application entrypoint by repeatedly passing repositories and services drilling down constructor calls, then this library is for you.
+
+This is also very useful for test setups.
+
+Don't take my word for it, go see the examples.
+
 ## Getting Started
 
 ### Prerequisites
@@ -86,5 +94,18 @@ func main() {
 		panic(err)
 	}
 }
-
 ```
+
+## Scopes
+
+### Transient
+
+### Singleton
+
+### Scoped
+
+## Resolution
+
+### Single
+
+### Slice

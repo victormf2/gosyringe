@@ -2,7 +2,7 @@
 [x] constructors with error returns
 [x] constructors with multiple parameters
 [x] list resolutions
-[ ] circular dependency detection
+[x] circular dependency detection
 [ ] RegisterTransient and Resolve
 [ ] RegisterScoped, Child and Resolve
 [ ] current Container resolutions

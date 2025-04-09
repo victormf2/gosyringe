@@ -341,6 +341,17 @@ func TestRegisterSingleton(t *testing.T) {
 			assert.ErrorIs(t, err, customError)
 		})
 	})
+
+	t.Run("should detect circular dependency", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewContainer()
+		RegisterSingleton[IService](c, NewSeeminglyHarmlessService)
+		RegisterSingleton[CircularDependency](c, NewCircularDependency)
+
+		_, err := Resolve[IService](c)
+		assert.EqualError(t, err, "circular dependency detected: gosyringe.IService -> gosyringe.CircularDependency -> gosyringe.IService")
+	})
 }
 
 type IService interface {
@@ -458,4 +469,27 @@ func (m MultiServiceInjection) GetMultiValue() []int {
 		values = append(values, service.GetValue())
 	}
 	return values
+}
+
+type SeeminglyHarmlessService struct {
+	circularDependency CircularDependency
+}
+
+func NewSeeminglyHarmlessService(circularDependency CircularDependency) IService {
+	return &SeeminglyHarmlessService{
+		circularDependency,
+	}
+}
+func (s SeeminglyHarmlessService) GetValue() int {
+	return 13
+}
+
+type CircularDependency struct {
+	service IService
+}
+
+func NewCircularDependency(service IService) CircularDependency {
+	return CircularDependency{
+		service,
+	}
 }
