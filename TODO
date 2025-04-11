@@ -6,5 +6,6 @@
 [x] RegisterTransient and Resolve
 [x] RegisterScoped, Child and Resolve
 [x] current Container resolutions
-[ ] injection tokens
-[ ] value registration
+[x] injection tokens
+[x] value registration
+[ ] resolution optimizations

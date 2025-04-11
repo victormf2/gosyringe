@@ -93,11 +93,7 @@ func initContainer() *Container {
 		resolutionLocks: internal.NewSyncMap[reflect.Type, *sync.Mutex](),
 	}
 
-	container.registry.Store(reflect.TypeFor[*Container](), &dependencyRegistration{
-		lifetime:     Singleton,
-		constructors: []reflect.Value{reflect.ValueOf(NewContainer)},
-	})
-	container.instances.Store(reflect.TypeFor[*Container](), reflect.ValueOf(container))
+	RegisterValue(container, container)
 
 	return container
 }
@@ -111,7 +107,7 @@ func initContainer() *Container {
 //
 // If RegisterTransient is called multiple times, the last registration is considered for resolution.
 func RegisterTransient[T any](c *Container, constructor any) {
-	register[T](c, constructor, Transient)
+	registerConstructor[T](c, constructor, Transient)
 }
 
 // Registers a dependency for the type T as Scoped, providing a constructor as resolution method.
@@ -129,7 +125,7 @@ func RegisterTransient[T any](c *Container, constructor any) {
 //
 // If RegisterScoped is called multiple times, the last registration is considered for resolution.
 func RegisterScoped[T any](c *Container, constructor any) {
-	register[T](c, constructor, Scoped)
+	registerConstructor[T](c, constructor, Scoped)
 }
 
 // Registers a dependency for the type T as Singleton, providing a constructor as resolution method.
@@ -142,7 +138,15 @@ func RegisterScoped[T any](c *Container, constructor any) {
 //
 // If RegisterSingleton is called multiple times, the last registration is considered for resolution.
 func RegisterSingleton[T any](c *Container, constructor any) {
-	register[T](c, constructor, Singleton)
+	registerConstructor[T](c, constructor, Singleton)
+}
+
+func RegisterValue[T any](c *Container, value T) {
+	if c.isRoot() {
+		RegisterSingleton[T](c, func() T { return value })
+	} else {
+		RegisterScoped[T](c, func() T { return value })
+	}
 }
 
 // Go does not provide a way to dynamically instantiate a generic function.
@@ -161,7 +165,7 @@ var resolveFunctionsRegistry = internal.NewSyncMap(
 	},
 )
 
-func register[T any](c *Container, constructor any, lifetime dependencyLifetime) {
+func registerConstructor[T any](c *Container, constructor any, lifetime dependencyLifetime) {
 	reflectedConstructor := reflect.ValueOf(constructor)
 	constructorType := reflectedConstructor.Type()
 
