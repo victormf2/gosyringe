@@ -8,4 +8,4 @@
 [x] current Container resolutions
 [x] injection tokens
 [x] value registration
-[ ] resolution optimizations
+[x] resolution optimizations

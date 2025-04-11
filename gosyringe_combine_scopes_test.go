@@ -93,15 +93,15 @@ func TestCombineScopes(t *testing.T) {
 			_, err := Resolve[ReceivingInjection](c)
 			assert.NoError(t, err)
 		})
-		t.Run("should not inject Scoped into Transient", func(t *testing.T) {
+		t.Run("can inject Scoped into Transient", func(t *testing.T) {
 			t.Parallel()
 
 			c := NewContainer()
 			RegisterScoped[Injecting](c, NewInjecting)
 			RegisterTransient[ReceivingInjection](c, NewReceivingInjection)
 
-			_, err := Resolve[ReceivingInjection](c)
-			assert.Error(t, err)
+			_, err := Resolve[ReceivingInjection](CreateChildContainer(c))
+			assert.NoError(t, err)
 		})
 		t.Run("can inject Singleton into Transient", func(t *testing.T) {
 			t.Parallel()
@@ -145,7 +145,7 @@ func TestCombineScopes(t *testing.T) {
 			assert.NoError(t, err)
 		})
 
-		t.Run("should not inject Transient into Singleton", func(t *testing.T) {
+		t.Run("can inject Transient into Singleton", func(t *testing.T) {
 			t.Parallel()
 
 			c := NewContainer()
@@ -153,7 +153,7 @@ func TestCombineScopes(t *testing.T) {
 			RegisterSingleton[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](c)
-			assert.Error(t, err)
+			assert.NoError(t, err)
 		})
 		t.Run("should not inject Scoped into Singleton", func(t *testing.T) {
 			t.Parallel()
@@ -163,6 +163,17 @@ func TestCombineScopes(t *testing.T) {
 			RegisterSingleton[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](c)
+			assert.Error(t, err)
+		})
+		t.Run("should not inject Scoped into Singleton indirectly", func(t *testing.T) {
+			t.Parallel()
+
+			c := NewContainer()
+			RegisterScoped[Injecting](c, NewInjecting)
+			RegisterTransient[ReceivingInjection](c, NewReceivingInjection)
+			RegisterSingleton[ReceivingReceivingInjection](c, NewReceivingReceivingInjection)
+
+			_, err := Resolve[ReceivingReceivingInjection](c)
 			assert.Error(t, err)
 		})
 		t.Run("can inject Singleton into Singleton", func(t *testing.T) {
@@ -233,16 +244,22 @@ func TestCombineScopes(t *testing.T) {
 	})
 }
 
+type Injecting struct{}
+
+func NewInjecting() Injecting {
+	return Injecting{}
+}
+
 type ReceivingInjection struct{}
 
 func NewReceivingInjection(injecting Injecting) ReceivingInjection {
 	return ReceivingInjection{}
 }
 
-type Injecting struct{}
+type ReceivingReceivingInjection struct{}
 
-func NewInjecting() Injecting {
-	return Injecting{}
+func NewReceivingReceivingInjection(injecting ReceivingInjection) ReceivingReceivingInjection {
+	return ReceivingReceivingInjection{}
 }
 
 type Thing struct {
