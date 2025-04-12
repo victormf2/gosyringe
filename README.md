@@ -8,7 +8,7 @@ Well, if you don't want to waste your time setting up your application entrypoin
 
 This is also very useful for test setups.
 
-Don't take my word for it, go see the examples.
+Don't take my word for it, go see the [examples](./internal/examples).
 
 ## Getting Started
 
@@ -389,7 +389,7 @@ type IService interface {
 
 // This is the Type Definitions syntax.
 // For Go, IOneService and IAnotherService are two distinct types.
-// So when we call Resolve[IOneService](c) we get a different instance
+// So when you call Resolve[IOneService](c) you get a different instance
 // from Resolve[IAnotherService](c)
 type IOneService IService
 type IAnotherService IService

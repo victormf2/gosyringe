@@ -190,6 +190,20 @@ func TestCombineScopes(t *testing.T) {
 		})
 	})
 
+	t.Run("should resolve from deep level nesting of child containers", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewContainer()
+		RegisterSingleton[IService](c, NewService)
+
+		c1 := CreateChildContainer(c)
+		c2 := CreateChildContainer(c1)
+		c3 := CreateChildContainer(c2)
+
+		_, err := Resolve[IService](c3)
+		assert.NoError(t, err)
+	})
+
 	t.Run("simulate real application services", func(t *testing.T) {
 		t.Parallel()
 

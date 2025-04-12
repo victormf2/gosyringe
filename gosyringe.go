@@ -47,7 +47,7 @@ func (c *Container) getDependencyRegistration(registrationType reflect.Type) (*d
 		return dependencyRegistration, true
 	}
 	if c.parent != nil {
-		dependencyRegistration, found := c.parent.registry.Load(registrationType)
+		dependencyRegistration, found := c.parent.getDependencyRegistration(registrationType)
 		return dependencyRegistration, found
 	}
 
@@ -88,18 +88,18 @@ func (dr *dependencyRegistration) AppendConstructor(constructorFunction reflect.
 type dependencyLifetime int
 
 const (
-	Transient dependencyLifetime = iota + 1
-	Scoped
-	Singleton
+	transient dependencyLifetime = iota + 1
+	scoped
+	singleton
 )
 
 func (s dependencyLifetime) String() string {
 	switch s {
-	case Transient:
+	case transient:
 		return "Transient"
-	case Scoped:
+	case scoped:
 		return "Scoped"
-	case Singleton:
+	case singleton:
 		return "Singleton"
 	default:
 		return "Unknown"
@@ -139,7 +139,7 @@ func initContainer() *Container {
 //
 // If RegisterTransient is called multiple times, the last registration is considered for resolution.
 func RegisterTransient[T any](c *Container, constructor any) {
-	registerConstructor[T](c, constructor, Transient)
+	registerConstructor[T](c, constructor, transient)
 }
 
 // Registers a dependency for the type T as Scoped, providing a constructor as resolution method.
@@ -157,7 +157,7 @@ func RegisterTransient[T any](c *Container, constructor any) {
 //
 // If RegisterScoped is called multiple times, the last registration is considered for resolution.
 func RegisterScoped[T any](c *Container, constructor any) {
-	registerConstructor[T](c, constructor, Scoped)
+	registerConstructor[T](c, constructor, scoped)
 }
 
 // Registers a dependency for the type T as Singleton, providing a constructor as resolution method.
@@ -170,7 +170,7 @@ func RegisterScoped[T any](c *Container, constructor any) {
 //
 // If RegisterSingleton is called multiple times, the last registration is considered for resolution.
 func RegisterSingleton[T any](c *Container, constructor any) {
-	registerConstructor[T](c, constructor, Singleton)
+	registerConstructor[T](c, constructor, singleton)
 }
 
 func RegisterValue[T any](c *Container, value T) {
@@ -212,7 +212,7 @@ func registerConstructor[T any](c *Container, constructorFunctionInstance any, l
 		panic(fmt.Sprintf("the type parameter %v is not the same as the return type of the constructor %v", registerType, dependencyType))
 	}
 
-	if lifetime == Singleton && !c.isRoot() {
+	if lifetime == singleton && !c.isRoot() {
 		panic(fmt.Sprintf("Singletons can only be registered at a root container: %v", registerType))
 	}
 
@@ -334,7 +334,7 @@ func resolve[T any](parentResolutionContext resolutionContext) (T, error) {
 		}
 	}
 
-	if currentResolutionContext.lifetime == Singleton || currentResolutionContext.lifetime == Scoped {
+	if currentResolutionContext.lifetime == singleton || currentResolutionContext.lifetime == scoped {
 		resolutionLock, _ := c.resolutionLocks.LoadOrStore(requestedResolutionType, &sync.Mutex{})
 
 		// By acquiring a lock per resolution type we prevent multiple Singleton or Scoped instances
@@ -349,14 +349,14 @@ func resolve[T any](parentResolutionContext resolutionContext) (T, error) {
 	}
 
 	// Resolution lifetime rules
-	if dependencyRegistration.lifetime == Scoped {
-		if currentResolutionContext.mainLifetime == Singleton {
+	if dependencyRegistration.lifetime == scoped {
+		if currentResolutionContext.mainLifetime == singleton {
 			// cannot inject Scoped into Singleton
 			return zero, fmt.Errorf("cannot inject Scoped (%v) dependencies in Singletons (%v)", requestedResolutionType, parentResolutionContext.resolutionType())
 		}
 	}
 
-	if dependencyRegistration.lifetime == Scoped {
+	if dependencyRegistration.lifetime == scoped {
 		if c.isRoot() {
 			return zero, fmt.Errorf("cannot resolve Scoped dependencies from the root Container: %v", requestedResolutionType)
 		}
@@ -377,7 +377,7 @@ func resolve[T any](parentResolutionContext resolutionContext) (T, error) {
 			sliceValue.Index(constructorIndex).Set(value)
 		}
 
-		if dependencyRegistration.lifetime == Singleton || dependencyRegistration.lifetime == Scoped {
+		if dependencyRegistration.lifetime == singleton || dependencyRegistration.lifetime == scoped {
 			c.instances.Store(requestedResolutionType, sliceValue.Interface())
 		}
 
@@ -391,7 +391,7 @@ func resolve[T any](parentResolutionContext resolutionContext) (T, error) {
 			return zero, err
 		}
 
-		if dependencyRegistration.lifetime == Singleton || dependencyRegistration.lifetime == Scoped {
+		if dependencyRegistration.lifetime == singleton || dependencyRegistration.lifetime == scoped {
 			c.instances.Store(requestedResolutionType, value.Interface())
 		}
 
