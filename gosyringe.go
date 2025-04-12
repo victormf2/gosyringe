@@ -112,6 +112,7 @@ func NewContainer() *Container {
 	return container
 }
 
+// Instantiates a new child Container providing a Container as a parent.
 func CreateChildContainer(c *Container) *Container {
 	container := initContainer()
 	container.parent = c
@@ -173,6 +174,12 @@ func RegisterSingleton[T any](c *Container, constructor any) {
 	registerConstructor[T](c, constructor, singleton)
 }
 
+// Registers a dependency for the type T as Singleton if called on a root Container and
+// as Scoped if called on a child Container, providing a value as resolution method.
+//
+// The registered value will be cached in the Container.
+//
+// This is useful when you already have an instance and just want it to be injectable.
 func RegisterValue[T any](c *Container, value T) {
 	if c.isRoot() {
 		RegisterSingleton[T](c, func() T { return value })
@@ -241,6 +248,14 @@ func registerConstructor[T any](c *Container, constructorFunctionInstance any, l
 // the child Container cache.
 //
 // If T is a slice type []E, then resolves all registered dependencies for E.
+//
+// If the Container don't have a registration for the type T, then it will be resolved
+// from the parent Container up to the root. If none of the Containers up the hierarchy
+// has a registration, then this will return an error.
+//
+// If the registered constructor for T returns an error, then this will return an error.
+// In the case of slice type, the resolution will stop at the first element instantiation
+// error.
 func Resolve[T any](c *Container) (T, error) {
 	resolutionContext := resolutionContext{
 		container: c,
