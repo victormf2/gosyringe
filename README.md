@@ -19,7 +19,7 @@ gosyringe requires Go version v1.24 or above.
 ### Installation
 
 ```
-go get -u github.com/gin-gonic/gin
+go get -u github.com/victormf2/gosyringe
 ```
 
 ### Usage example
@@ -226,6 +226,7 @@ func main() {
 When resolving a slice instance, the instantiation will occur for every regsitered constructor (or value) for that type in order.
 
 ```go
+func main() {
 	c := gosyringe.NewContainer()
 
 	instance1 := NewService()
@@ -241,6 +242,7 @@ When resolving a slice instance, the instantiation will occur for every regsiter
 	fmt.Println(instance1 == resolvedInstances[0]) // true
 	fmt.Println(instance2 == resolvedInstances[1]) // true
 	fmt.Println(instance3 == resolvedInstances[2]) // true
+}
 ```
 
 ### Injection lifetime rules
