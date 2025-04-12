@@ -46,7 +46,6 @@ func TestRegisterScoped(t *testing.T) {
 				assert.Equal(t, 12, value)
 			})
 		}
-
 	})
 
 	t.Run("should resolve a single instance", func(t *testing.T) {
@@ -195,7 +194,6 @@ func TestRegisterScoped(t *testing.T) {
 				RegisterScoped[IService](c, tt.constructor)
 			})
 		}
-
 	})
 
 	t.Run("should accept custom error return", func(t *testing.T) {

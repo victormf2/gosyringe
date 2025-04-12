@@ -26,22 +26,28 @@ func TestInjectionTokens(t *testing.T) {
 	})
 }
 
-type TokenOne IService
-type TokenOneService struct{}
+type (
+	TokenOne        IService
+	TokenOneService struct{}
+)
 
 func (s *TokenOneService) GetValue() int {
 	return 1
 }
+
 func NewTokenOne() TokenOne {
 	return &TokenOneService{}
 }
 
-type TokenTwo IService
-type TokenTwoService struct{}
+type (
+	TokenTwo        IService
+	TokenTwoService struct{}
+)
 
 func (s *TokenTwoService) GetValue() int {
 	return 2
 }
+
 func NewTokenTwo() TokenTwo {
 	return &TokenTwoService{}
 }

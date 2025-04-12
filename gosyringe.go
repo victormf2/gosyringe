@@ -89,8 +89,8 @@ type dependencyLifetime int
 
 const (
 	Transient dependencyLifetime = iota + 1
-	Scoped                       = 2
-	Singleton                    = 3
+	Scoped
+	Singleton
 )
 
 func (s dependencyLifetime) String() string {
@@ -263,9 +263,10 @@ type resolutionContext struct {
 
 func (rc resolutionContext) push(resolutionType reflect.Type) resolutionContext {
 	return resolutionContext{
-		container: rc.container,
-		lifetime:  rc.lifetime,
-		stack:     append(rc.stack, resolutionType),
+		container:    rc.container,
+		lifetime:     rc.lifetime,
+		mainLifetime: rc.mainLifetime,
+		stack:        append(rc.stack, resolutionType),
 	}
 }
 
@@ -286,7 +287,6 @@ func (rc resolutionContext) dependencyGraphString() string {
 }
 
 func resolve[T any](parentResolutionContext resolutionContext) (T, error) {
-
 	var zero T // small trick since x := T{} is not possible
 	requestedResolutionType := reflect.TypeFor[T]()
 	currentResolutionContext := parentResolutionContext.push(requestedResolutionType)
@@ -426,6 +426,7 @@ func resolveSingle(resolutionContext resolutionContext, constructor constructor,
 				if strings.Contains(err.(error).Error(), "circular dependency detected") {
 					return zero, err.(error)
 				}
+
 				return zero, fmt.Errorf("failed to resolve argument %v of constructor for %v: %w", argumentIndex, elementType, err.(error))
 			}
 		}

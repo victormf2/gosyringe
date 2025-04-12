@@ -46,7 +46,6 @@ func TestRegisterSingleton(t *testing.T) {
 				assert.Equal(t, 12, value)
 			})
 		}
-
 	})
 
 	t.Run("should resolve a single instance", func(t *testing.T) {
@@ -193,11 +192,9 @@ func TestRegisterSingleton(t *testing.T) {
 				RegisterSingleton[IService](c, tt.constructor)
 			})
 		}
-
 	})
 
 	t.Run("should panic when registering Singleton from child container", func(t *testing.T) {
-
 		defer func() {
 			actualPanic := recover()
 			assert.Equal(t, "Singletons can only be registered at a root container: gosyringe.IService", actualPanic)

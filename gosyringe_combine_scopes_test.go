@@ -173,7 +173,9 @@ func TestCombineScopes(t *testing.T) {
 			RegisterTransient[ReceivingInjection](c, NewReceivingInjection)
 			RegisterSingleton[ReceivingReceivingInjection](c, NewReceivingReceivingInjection)
 
-			_, err := Resolve[ReceivingReceivingInjection](c)
+			childContainer := CreateChildContainer(c)
+
+			_, err := Resolve[ReceivingReceivingInjection](childContainer)
 			assert.Error(t, err)
 		})
 		t.Run("can inject Singleton into Singleton", func(t *testing.T) {
@@ -280,6 +282,7 @@ func (s SomeSingletonExternalService) GetThings() []Thing {
 		},
 	}
 }
+
 func NewSomeSingletonExternalService() ISomeSingletonExternalService {
 	return &SomeSingletonExternalService{}
 }
@@ -288,19 +291,21 @@ type IDate interface {
 	GetDate() string
 }
 
-var currentIndex = 0
-var dates = []string{
-	"2025-01-01",
-	"2025-01-02",
-	"2025-01-03",
-	"2025-01-04",
-	"2025-01-05",
-	"2025-01-06",
-	"2025-01-07",
-	"2025-01-08",
-	"2025-01-09",
-	"2025-01-10",
-}
+var (
+	currentIndex = 0
+	dates        = []string{
+		"2025-01-01",
+		"2025-01-02",
+		"2025-01-03",
+		"2025-01-04",
+		"2025-01-05",
+		"2025-01-06",
+		"2025-01-07",
+		"2025-01-08",
+		"2025-01-09",
+		"2025-01-10",
+	}
+)
 
 type MarsDate struct {
 	date string
@@ -311,6 +316,7 @@ func NewMarsDate() IDate {
 	currentIndex += 1
 	return &MarsDate{date}
 }
+
 func (d *MarsDate) GetDate() string {
 	return d.date
 }

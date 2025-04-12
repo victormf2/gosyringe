@@ -44,6 +44,7 @@ func (m *SyncMap[K, V]) Store(key K, value V) {
 	defer m.mu.Unlock()
 	m.backMap[key] = value
 }
+
 func (m *SyncMap[K, V]) Load(key K) (V, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -55,8 +56,8 @@ func (m *SyncMap[K, V]) Load(key K) (V, bool) {
 	}
 
 	return value, true
-
 }
+
 func (m *SyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

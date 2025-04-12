@@ -50,7 +50,6 @@ func TestRegisterTransient(t *testing.T) {
 				assert.Equal(t, 12, value)
 			})
 		}
-
 	})
 
 	t.Run("should always resolve new instances", func(t *testing.T) {
@@ -199,7 +198,6 @@ func TestRegisterTransient(t *testing.T) {
 				RegisterTransient[IService](c, tt.constructor)
 			})
 		}
-
 	})
 
 	t.Run("should accept custom error return", func(t *testing.T) {

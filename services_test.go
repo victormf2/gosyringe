@@ -12,11 +12,13 @@ type Service struct {
 func (s Service) GetValue() int {
 	return 12
 }
+
 func NewService() IService {
 	return &Service{
 		value: uuid.NewString(),
 	}
 }
+
 func NewServiceUnsafe() (IService, error) {
 	return &Service{value: uuid.NewString()}, nil
 }
@@ -38,6 +40,7 @@ type OtherService struct{}
 func (s OtherService) GetValue() int {
 	return 13
 }
+
 func NewOtherService() IService {
 	return &OtherService{}
 }
@@ -115,6 +118,7 @@ func NewMultiServiceInjection(services []IService) MultiServiceInjection {
 		services,
 	}
 }
+
 func (m MultiServiceInjection) GetMultiValue() []int {
 	values := []int{}
 	for _, service := range m.services {
@@ -132,6 +136,7 @@ func NewSeeminglyHarmlessService(circularDependency CircularDependency) IService
 		circularDependency,
 	}
 }
+
 func (s SeeminglyHarmlessService) GetValue() int {
 	return 13
 }
