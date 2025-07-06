@@ -174,7 +174,7 @@ func TestRegisterScoped(t *testing.T) {
 				constructor: func() Service {
 					return Service{}
 				},
-				expectedPanic: "the type parameter gosyringe.IService is not the same as the return type of the constructor gosyringe.Service",
+				expectedPanic: "the type parameter gosyringe.IService must be equal to the return type of the constructor gosyringe.Service",
 			},
 		}
 
