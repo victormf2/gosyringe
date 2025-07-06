@@ -19,7 +19,8 @@ func Flat[T any](values [][]T) []T {
 }
 
 type SyncMap[K comparable, V any] struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
+	Parent  *SyncMap[K, V]
 	backMap map[K]V
 }
 type KeyValue[K comparable, V any] struct {
@@ -39,25 +40,30 @@ func NewSyncMap[K comparable, V any](initialKeyValues ...KeyValue[K, V]) *SyncMa
 	return syncMap
 }
 
+// Stores shallow
 func (m *SyncMap[K, V]) Store(key K, value V) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.backMap[key] = value
 }
 
+// Load search on Parent as well
 func (m *SyncMap[K, V]) Load(key K) (V, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	value, found := m.backMap[key]
-	if !found {
-		var zero V
-		return zero, false
+	if found {
+		return value, true
 	}
-
-	return value, true
+	if m.Parent != nil {
+		return m.Parent.Load(key)
+	}
+	var zero V
+	return zero, false
 }
 
+// LoadOrStores shallow
 func (m *SyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

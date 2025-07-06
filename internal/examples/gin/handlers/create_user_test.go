@@ -3,7 +3,7 @@ package handlers_test
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/victormf2/gosyringe"
 	"github.com/victormf2/gosyringe/internal/examples/gin/handlers"
 	"github.com/victormf2/gosyringe/internal/examples/gin/mocks"
@@ -39,15 +39,15 @@ func TestCreateUser(t *testing.T) {
 		})
 
 		handler, err := gosyringe.Resolve[*handlers.CreateUserHandler](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		input := &handlers.CreateUserInput{
 			Name:  "John Doe",
 			Email: "john.doe@example.com",
 		}
 		out, err := handler.Handle(input)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		assert.Equal(t, &handlers.CreateUserOutput{ID: 1}, out)
+		require.Equal(t, &handlers.CreateUserOutput{ID: 1}, out)
 	})
 }

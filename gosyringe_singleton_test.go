@@ -2,12 +2,14 @@ package gosyringe
 
 import (
 	"fmt"
+	"math/rand"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRegisterSingleton(t *testing.T) {
@@ -38,12 +40,12 @@ func TestRegisterSingleton(t *testing.T) {
 				container := NewContainer()
 				RegisterSingleton[IService](container, tt.constructor)
 				service, err := Resolve[IService](container)
-				assert.NoError(t, err)
+				require.NoError(t, err)
 
 				value := service.GetValue()
 
-				assert.IsType(t, &Service{}, service)
-				assert.Equal(t, 12, value)
+				require.IsType(t, &Service{}, service)
+				require.Equal(t, 12, value)
 			})
 		}
 	})
@@ -54,14 +56,25 @@ func TestRegisterSingleton(t *testing.T) {
 		testData := []struct {
 			name        string
 			constructor any
+			fromChild   bool
 		}{
+			// {
+			// 	name:        "safe constructor",
+			// 	constructor: NewService,
+			// },
+			// {
+			// 	name:        "unsafe constructor",
+			// 	constructor: NewServiceUnsafe,
+			// },
+			// {
+			// 	name:        "safe constructor from child",
+			// 	constructor: NewService,
+			// 	fromChild:   true,
+			// },
 			{
-				name:        "safe constructor",
-				constructor: NewService,
-			},
-			{
-				name:        "unsafe constructor",
+				name:        "unsafe constructor from child",
 				constructor: NewServiceUnsafe,
+				fromChild:   true,
 			},
 		}
 
@@ -72,32 +85,49 @@ func TestRegisterSingleton(t *testing.T) {
 
 				c := NewContainer()
 
-				var constructorCallCount int
-				var mu sync.Mutex
+				var constructorCallCount atomic.Uint32
 
 				RegisterSingleton[IService](c, func() IService {
 					time.Sleep(10 * time.Millisecond)
-					mu.Lock()
-					constructorCallCount++
-					mu.Unlock()
+
+					constructorCallCount.Add(1)
 
 					service := reflect.ValueOf(tt.constructor).Call(nil)[0]
 					return service.Interface().(IService)
 				})
 
 				const goroutines = 100
+				containers := []*Container{}
+				if tt.fromChild {
+					for range goroutines / 2 {
+						containers = append(containers, c)
+					}
+					for range goroutines / 2 {
+						containers = append(containers, CreateChildContainer(c))
+					}
+					rand.Shuffle(goroutines, func(i, j int) {
+						tmp := containers[i]
+						containers[i] = containers[j]
+						containers[j] = tmp
+					})
+				} else {
+					for range goroutines {
+						containers = append(containers, c)
+					}
+				}
+
 				var wg sync.WaitGroup
 				results := make(chan IService, goroutines)
 
-				for range goroutines {
+				for i := range goroutines {
 					wg.Add(1)
-					go func() {
+					go func(c *Container) {
 						defer wg.Done()
 						instance, err := Resolve[IService](c)
-						assert.NoError(t, err, "resolve failed")
+						require.NoError(t, err, "resolve failed")
 
 						results <- instance
-					}()
+					}(containers[i])
 				}
 
 				wg.Wait()
@@ -112,7 +142,7 @@ func TestRegisterSingleton(t *testing.T) {
 					}
 				}
 
-				assert.Equal(t, 1, constructorCallCount)
+				require.Equal(t, uint32(1), constructorCallCount.Load())
 			})
 		}
 	})
@@ -127,12 +157,12 @@ func TestRegisterSingleton(t *testing.T) {
 		RegisterSingleton[IService](c, NewOtherService)
 
 		service, err := Resolve[IService](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		value := service.GetValue()
 
-		assert.IsType(t, &OtherService{}, service)
-		assert.Equal(t, 13, value)
+		require.IsType(t, &OtherService{}, service)
+		require.Equal(t, 13, value)
 	})
 
 	t.Run("should panic with invalid constructor", func(t *testing.T) {
@@ -184,7 +214,7 @@ func TestRegisterSingleton(t *testing.T) {
 				// https://stackoverflow.com/a/31596110
 				defer func() {
 					actualPanic := recover()
-					assert.Equal(t, tt.expectedPanic, actualPanic)
+					require.Equal(t, tt.expectedPanic, actualPanic)
 				}()
 
 				c := NewContainer()
@@ -197,7 +227,7 @@ func TestRegisterSingleton(t *testing.T) {
 	t.Run("should panic when registering Singleton from child container", func(t *testing.T) {
 		defer func() {
 			actualPanic := recover()
-			assert.Equal(t, "Singletons can only be registered at a root container: gosyringe.IService", actualPanic)
+			require.Equal(t, "Singletons can only be registered at a root container: gosyringe.IService", actualPanic)
 		}()
 
 		c := CreateChildContainer(NewContainer())
@@ -221,7 +251,7 @@ func TestRegisterSingleton(t *testing.T) {
 
 		_, err := Resolve[IService](c)
 
-		assert.ErrorIs(t, err, customError)
+		require.ErrorIs(t, err, customError)
 	})
 
 	t.Run("should resolve constructor with multiple parameters", func(t *testing.T) {
@@ -233,8 +263,8 @@ func TestRegisterSingleton(t *testing.T) {
 
 		service, err := Resolve[IServiceFive](c)
 
-		assert.NoError(t, err)
-		assert.Equal(t, 5, service.GetValueFive())
+		require.NoError(t, err)
+		require.Equal(t, 5, service.GetValueFive())
 	})
 
 	t.Run("with slice resolution", func(t *testing.T) {
@@ -248,17 +278,17 @@ func TestRegisterSingleton(t *testing.T) {
 			RegisterSingleton[IService](c, NewServiceUnsafe)
 			RegisterSingleton[IService](c, NewOtherService)
 			services, err := Resolve[[]IService](c)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			value := 0
 			for _, service := range services {
 				value += service.GetValue()
 			}
 
-			assert.IsType(t, &Service{}, services[0])
-			assert.IsType(t, &Service{}, services[1])
-			assert.IsType(t, &OtherService{}, services[2])
-			assert.Equal(t, 37, value)
+			require.IsType(t, &Service{}, services[0])
+			require.IsType(t, &Service{}, services[1])
+			require.IsType(t, &OtherService{}, services[2])
+			require.Equal(t, 37, value)
 		})
 
 		t.Run("should resolve a single instance", func(t *testing.T) {
@@ -296,7 +326,7 @@ func TestRegisterSingleton(t *testing.T) {
 				go func() {
 					defer wg.Done()
 					instance, err := Resolve[[]IService](c)
-					assert.NoError(t, err, "resolve failed")
+					require.NoError(t, err, "resolve failed")
 
 					results <- instance
 				}()
@@ -314,11 +344,11 @@ func TestRegisterSingleton(t *testing.T) {
 				}
 			}
 
-			assert.Len(t, firstInstance, 3)
+			require.Len(t, firstInstance, 3)
 
-			assert.Equal(t, 1, constructorCallCount[0])
-			assert.Equal(t, 1, constructorCallCount[1])
-			assert.Equal(t, 1, constructorCallCount[2])
+			require.Equal(t, 1, constructorCallCount[0])
+			require.Equal(t, 1, constructorCallCount[1])
+			require.Equal(t, 1, constructorCallCount[2])
 		})
 
 		t.Run("should work as parameter injection", func(t *testing.T) {
@@ -331,10 +361,10 @@ func TestRegisterSingleton(t *testing.T) {
 			RegisterSingleton[MultiServiceInjection](c, NewMultiServiceInjection)
 
 			multiService, err := Resolve[MultiServiceInjection](c)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			values := multiService.GetMultiValue()
-			assert.Equal(t, []int{12, 13}, values)
+			require.Equal(t, []int{12, 13}, values)
 		})
 
 		t.Run("should return error on Resolve", func(t *testing.T) {
@@ -346,7 +376,7 @@ func TestRegisterSingleton(t *testing.T) {
 
 			_, err := Resolve[[]IService](c)
 
-			assert.ErrorIs(t, err, customError)
+			require.ErrorIs(t, err, customError)
 		})
 	})
 
@@ -358,6 +388,6 @@ func TestRegisterSingleton(t *testing.T) {
 		RegisterSingleton[CircularDependency](c, NewCircularDependency)
 
 		_, err := Resolve[IService](c)
-		assert.EqualError(t, err, "circular dependency detected: gosyringe.IService -> gosyringe.CircularDependency -> gosyringe.IService")
+		require.EqualError(t, err, "circular dependency detected: gosyringe.IService -> gosyringe.CircularDependency -> gosyringe.IService")
 	})
 }

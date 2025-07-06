@@ -370,7 +370,71 @@ func main() {
 
 ```
 
-## Injection tokens
+### Resolution keys
+
+All registration methods have an alternative `RegisterXxxWithKey` version. Registration with keys cannot be directly injected in constructor parameters, but can be resolved with a injected `Container`. They are useful if you want to implement the strategy pattern.
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/victormf2/gosyringe"
+)
+
+type IPayment interface {
+	Pay(value int)
+}
+
+type CreditCardPayment struct{}
+
+func (p *CreditCardPayment) Pay(value int) {
+	fmt.Printf("paying with credit card: %v\n", value)
+}
+func NewCreditCardPayment() IPayment {
+	return &CreditCardPayment{}
+}
+
+type CashPayment struct{}
+
+func (p *CashPayment) Pay(value int) {
+	fmt.Printf("paying with cash: %v\n", value)
+}
+func NewCashPayment() IPayment {
+	return &CashPayment{}
+}
+
+type Service struct {
+	container *gosyringe.Container
+}
+
+func (s *Service) MakePayment(paymentMethod string, value int) {
+	paymentService, _ := gosyringe.ResolveWithKey[IPayment](s.container, paymentMethod)
+	paymentService.Pay(value)
+}
+func NewService(container *gosyringe.Container) *Service {
+	return &Service{
+		container: container,
+	}
+}
+
+func main() {
+	c := gosyringe.NewContainer()
+
+	gosyringe.RegisterSingleton[*Service](c, NewService)
+	gosyringe.RegisterSingletonWithKey[IPayment](c, "credit_card", NewCreditCardPayment)
+	gosyringe.RegisterSingletonWithKey[IPayment](c, "cash", NewCashPayment)
+
+	service, _ := gosyringe.Resolve[*Service](c)
+
+	service.MakePayment("credit_card", 21) // paying with credit card: 21
+	service.MakePayment("cash", 200_000_000) // paying with cash: 200000000
+}
+
+```
+
+### Injection tokens
 
 Injection tokens is a way to register different constructors for the same type or interface. In other dependency injection frameworks it's usually done by providing a value (e.g. a string like "MyServiceToken") which maps to a constructor. Different values can provide the same instance type.
 

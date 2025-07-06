@@ -3,7 +3,7 @@ package gosyringe
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInjectionTokens(t *testing.T) {
@@ -16,13 +16,13 @@ func TestInjectionTokens(t *testing.T) {
 		RegisterSingleton[TokenTwo](c, NewTokenTwo)
 
 		serviceOne, err := Resolve[TokenOne](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		serviceTwo, err := Resolve[TokenTwo](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		assert.Equal(t, 1, serviceOne.GetValue())
-		assert.Equal(t, 2, serviceTwo.GetValue())
+		require.Equal(t, 1, serviceOne.GetValue())
+		require.Equal(t, 2, serviceTwo.GetValue())
 	})
 }
 

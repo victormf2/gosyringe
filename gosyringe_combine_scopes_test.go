@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/victormf2/gosyringe/internal"
 )
 
@@ -71,7 +71,7 @@ func TestCombineScopes(t *testing.T) {
 
 				defer func() {
 					actualPanic := recover()
-					assert.Equal(t, tt.expectedPanic, actualPanic)
+					require.Equal(t, tt.expectedPanic, actualPanic)
 				}()
 
 				tt.first(c, NewService)
@@ -91,7 +91,7 @@ func TestCombineScopes(t *testing.T) {
 			RegisterTransient[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](c)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		})
 		t.Run("can inject Scoped into Transient", func(t *testing.T) {
 			t.Parallel()
@@ -101,7 +101,7 @@ func TestCombineScopes(t *testing.T) {
 			RegisterTransient[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](CreateChildContainer(c))
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		})
 		t.Run("can inject Singleton into Transient", func(t *testing.T) {
 			t.Parallel()
@@ -111,7 +111,7 @@ func TestCombineScopes(t *testing.T) {
 			RegisterTransient[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](c)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		})
 
 		t.Run("can inject Transient into Scoped", func(t *testing.T) {
@@ -122,7 +122,7 @@ func TestCombineScopes(t *testing.T) {
 			RegisterScoped[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](CreateChildContainer(c))
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		})
 		t.Run("can inject Scoped into Scoped", func(t *testing.T) {
 			t.Parallel()
@@ -132,7 +132,7 @@ func TestCombineScopes(t *testing.T) {
 			RegisterScoped[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](CreateChildContainer(c))
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		})
 		t.Run("can inject Singleton into Scoped", func(t *testing.T) {
 			t.Parallel()
@@ -142,7 +142,7 @@ func TestCombineScopes(t *testing.T) {
 			RegisterScoped[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](CreateChildContainer(c))
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		})
 
 		t.Run("can inject Transient into Singleton", func(t *testing.T) {
@@ -153,7 +153,7 @@ func TestCombineScopes(t *testing.T) {
 			RegisterSingleton[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](c)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		})
 		t.Run("should not inject Scoped into Singleton", func(t *testing.T) {
 			t.Parallel()
@@ -163,7 +163,7 @@ func TestCombineScopes(t *testing.T) {
 			RegisterSingleton[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](c)
-			assert.Error(t, err)
+			require.Error(t, err)
 		})
 		t.Run("should not inject Scoped into Singleton indirectly", func(t *testing.T) {
 			t.Parallel()
@@ -176,7 +176,7 @@ func TestCombineScopes(t *testing.T) {
 			childContainer := CreateChildContainer(c)
 
 			_, err := Resolve[ReceivingReceivingInjection](childContainer)
-			assert.Error(t, err)
+			require.Error(t, err)
 		})
 		t.Run("can inject Singleton into Singleton", func(t *testing.T) {
 			t.Parallel()
@@ -186,7 +186,7 @@ func TestCombineScopes(t *testing.T) {
 			RegisterSingleton[ReceivingInjection](c, NewReceivingInjection)
 
 			_, err := Resolve[ReceivingInjection](c)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		})
 	})
 
@@ -201,7 +201,7 @@ func TestCombineScopes(t *testing.T) {
 		c3 := CreateChildContainer(c2)
 
 		_, err := Resolve[IService](c3)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("simulate real application services", func(t *testing.T) {
@@ -215,22 +215,22 @@ func TestCombineScopes(t *testing.T) {
 		RegisterScoped[RequestHandler](c, NewRequestHandler)
 
 		singleton0, err := Resolve[ISomeSingletonExternalService](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		transient0, err := Resolve[IDate](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		child0 := CreateChildContainer(c)
 
 		handler0, err := Resolve[RequestHandler](child0)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		handler1, err := Resolve[RequestHandler](child0)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		child1 := CreateChildContainer(c)
 
 		handler2, err := Resolve[RequestHandler](child1)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		singleton1 := handler0.service
 		singleton2 := handler1.service
@@ -240,23 +240,23 @@ func TestCombineScopes(t *testing.T) {
 		transient2 := handler1.date
 		transient3 := handler2.date
 
-		assert.True(t, assert.ObjectsAreEqual(handler0, handler1))  // handlers from same child container
-		assert.False(t, assert.ObjectsAreEqual(handler1, handler2)) // handlers from different child container
+		require.Exactly(t, handler0, handler1)  // handlers from same child container
+		require.NotEqual(t, handler1, handler2) // handlers from different child container
 
-		assert.True(t, assert.ObjectsAreEqual(handler0.ctx.RequestId, handler1.ctx.RequestId))  // handlers from same child container
-		assert.False(t, assert.ObjectsAreEqual(handler1.ctx.RequestId, handler2.ctx.RequestId)) // handlers from different child container
+		require.Exactly(t, handler0.ctx.RequestId, handler1.ctx.RequestId)  // handlers from same child container
+		require.NotEqual(t, handler1.ctx.RequestId, handler2.ctx.RequestId) // handlers from different child container
 
-		assert.Equal(t, "thing1 thing2 2025-01-02", handler0.Handle())
-		assert.Equal(t, "thing1 thing2 2025-01-02", handler1.Handle())
-		assert.Equal(t, "thing1 thing2 2025-01-03", handler2.Handle())
+		require.Equal(t, "thing1 thing2 2025-01-02", handler0.Handle())
+		require.Equal(t, "thing1 thing2 2025-01-02", handler1.Handle())
+		require.Equal(t, "thing1 thing2 2025-01-03", handler2.Handle())
 
-		assert.True(t, assert.ObjectsAreEqual(singleton0, singleton1)) // singleton should always be equal
-		assert.True(t, assert.ObjectsAreEqual(singleton1, singleton2)) // singleton should always be equal
-		assert.True(t, assert.ObjectsAreEqual(singleton2, singleton3)) // singleton should always be equal
+		require.Exactly(t, singleton0, singleton1) // singleton should always be equal
+		require.Exactly(t, singleton1, singleton2) // singleton should always be equal
+		require.Exactly(t, singleton2, singleton3) // singleton should always be equal
 
-		assert.False(t, assert.ObjectsAreEqual(transient0, transient1)) // 0 -> independent, 1 -> handler0
-		assert.True(t, assert.ObjectsAreEqual(transient1, transient2))  // 1 -> handler0, 2 -> handler1, handler0 == handler1
-		assert.False(t, assert.ObjectsAreEqual(transient2, transient3)) // 2 -> handler1, 3 -> handler2, handler1 != handler2
+		require.NotEqual(t, transient0, transient1) // 0 -> independent, 1 -> handler0
+		require.Exactly(t, transient1, transient2)  // 1 -> handler0, 2 -> handler1, handler0 == handler1
+		require.NotEqual(t, transient2, transient3) // 2 -> handler1, 3 -> handler2, handler1 != handler2
 	})
 }
 

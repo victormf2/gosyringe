@@ -3,7 +3,7 @@ package gosyringe
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestContainerResolution(t *testing.T) {
@@ -16,13 +16,13 @@ func TestContainerResolution(t *testing.T) {
 		RegisterSingleton[ServiceWithContainer](c, NewServiceWithContainer)
 
 		service, err := Resolve[ServiceWithContainer](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		container, err := Resolve[*Container](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		assert.True(t, assert.ObjectsAreEqual(c, service.container))
-		assert.True(t, assert.ObjectsAreEqual(c, container))
+		require.Same(t, c, service.container)
+		require.Same(t, c, container)
 	})
 
 	t.Run("should resolve child container", func(t *testing.T) {
@@ -34,14 +34,14 @@ func TestContainerResolution(t *testing.T) {
 		childContainer := CreateChildContainer(c)
 
 		service, err := Resolve[ServiceWithContainer](childContainer)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		container, err := Resolve[*Container](childContainer)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		assert.True(t, assert.ObjectsAreEqual(childContainer, service.container))
-		assert.True(t, assert.ObjectsAreEqual(childContainer, container))
-		assert.False(t, assert.ObjectsAreEqual(childContainer, c))
+		require.Same(t, childContainer, service.container)
+		require.Same(t, childContainer, container)
+		require.NotSame(t, childContainer, c)
 	})
 }
 

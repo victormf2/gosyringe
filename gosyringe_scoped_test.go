@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRegisterScoped(t *testing.T) {
@@ -38,17 +38,17 @@ func TestRegisterScoped(t *testing.T) {
 				container := NewContainer()
 				RegisterScoped[IService](container, tt.constructor)
 				service, err := Resolve[IService](CreateChildContainer(container))
-				assert.NoError(t, err)
+				require.NoError(t, err)
 
 				value := service.GetValue()
 
-				assert.IsType(t, &Service{}, service)
-				assert.Equal(t, 12, value)
+				require.IsType(t, &Service{}, service)
+				require.Equal(t, 12, value)
 			})
 		}
 	})
 
-	t.Run("should resolve a single instance", func(t *testing.T) {
+	t.Run("should resolve a single instance on same container", func(t *testing.T) {
 		t.Parallel()
 
 		testData := []struct {
@@ -96,7 +96,7 @@ func TestRegisterScoped(t *testing.T) {
 					go func() {
 						defer wg.Done()
 						instance, err := Resolve[IService](childContainer)
-						assert.NoError(t, err, "resolve failed")
+						require.NoError(t, err, "resolve failed")
 
 						results <- instance
 					}()
@@ -114,9 +114,31 @@ func TestRegisterScoped(t *testing.T) {
 					}
 				}
 
-				assert.Equal(t, 1, constructorCallCount)
+				require.Equal(t, 1, constructorCallCount)
 			})
 		}
+	})
+
+	t.Run("should resolve different instances on different containers", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewContainer()
+
+		RegisterScoped[IService](c, NewService)
+
+		child := CreateChildContainer(c)
+		otherChild := CreateChildContainer(c)
+		grandChild := CreateChildContainer(child)
+
+		serviceChild, err := Resolve[IService](child)
+		require.NoError(t, err)
+		serviceOtherChild, err := Resolve[IService](otherChild)
+		require.NoError(t, err)
+		serviceGrandChild, err := Resolve[IService](grandChild)
+		require.NoError(t, err)
+
+		require.NotSame(t, serviceChild, serviceOtherChild)
+		require.NotSame(t, serviceChild, serviceGrandChild)
 	})
 
 	t.Run("should resolve the last registered instance", func(t *testing.T) {
@@ -129,12 +151,12 @@ func TestRegisterScoped(t *testing.T) {
 		RegisterScoped[IService](c, NewOtherService)
 
 		service, err := Resolve[IService](CreateChildContainer(c))
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		value := service.GetValue()
 
-		assert.IsType(t, &OtherService{}, service)
-		assert.Equal(t, 13, value)
+		require.IsType(t, &OtherService{}, service)
+		require.Equal(t, 13, value)
 	})
 
 	t.Run("should panic with invalid constructor", func(t *testing.T) {
@@ -186,7 +208,7 @@ func TestRegisterScoped(t *testing.T) {
 				// https://stackoverflow.com/a/31596110
 				defer func() {
 					actualPanic := recover()
-					assert.Equal(t, tt.expectedPanic, actualPanic)
+					require.Equal(t, tt.expectedPanic, actualPanic)
 				}()
 
 				c := NewContainer()
@@ -213,7 +235,7 @@ func TestRegisterScoped(t *testing.T) {
 
 		_, err := Resolve[IService](CreateChildContainer(c))
 
-		assert.ErrorIs(t, err, customError)
+		require.ErrorIs(t, err, customError)
 	})
 
 	t.Run("should resolve constructor with multiple parameters", func(t *testing.T) {
@@ -225,8 +247,8 @@ func TestRegisterScoped(t *testing.T) {
 
 		service, err := Resolve[IServiceFive](CreateChildContainer(c))
 
-		assert.NoError(t, err)
-		assert.Equal(t, 5, service.GetValueFive())
+		require.NoError(t, err)
+		require.Equal(t, 5, service.GetValueFive())
 	})
 
 	t.Run("with slice resolution", func(t *testing.T) {
@@ -240,20 +262,20 @@ func TestRegisterScoped(t *testing.T) {
 			RegisterScoped[IService](c, NewServiceUnsafe)
 			RegisterScoped[IService](c, NewOtherService)
 			services, err := Resolve[[]IService](CreateChildContainer(c))
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			value := 0
 			for _, service := range services {
 				value += service.GetValue()
 			}
 
-			assert.IsType(t, &Service{}, services[0])
-			assert.IsType(t, &Service{}, services[1])
-			assert.IsType(t, &OtherService{}, services[2])
-			assert.Equal(t, 37, value)
+			require.IsType(t, &Service{}, services[0])
+			require.IsType(t, &Service{}, services[1])
+			require.IsType(t, &OtherService{}, services[2])
+			require.Equal(t, 37, value)
 		})
 
-		t.Run("should resolve a single instance", func(t *testing.T) {
+		t.Run("should resolve a single instance on same container", func(t *testing.T) {
 			t.Parallel()
 
 			c := NewContainer()
@@ -290,7 +312,7 @@ func TestRegisterScoped(t *testing.T) {
 				go func() {
 					defer wg.Done()
 					instance, err := Resolve[[]IService](childContainer)
-					assert.NoError(t, err, "resolve failed")
+					require.NoError(t, err, "resolve failed")
 
 					results <- instance
 				}()
@@ -308,11 +330,11 @@ func TestRegisterScoped(t *testing.T) {
 				}
 			}
 
-			assert.Len(t, firstInstance, 3)
+			require.Len(t, firstInstance, 3)
 
-			assert.Equal(t, 1, constructorCallCount[0])
-			assert.Equal(t, 1, constructorCallCount[1])
-			assert.Equal(t, 1, constructorCallCount[2])
+			require.Equal(t, 1, constructorCallCount[0])
+			require.Equal(t, 1, constructorCallCount[1])
+			require.Equal(t, 1, constructorCallCount[2])
 		})
 
 		t.Run("should work as parameter injection", func(t *testing.T) {
@@ -325,10 +347,10 @@ func TestRegisterScoped(t *testing.T) {
 			RegisterScoped[MultiServiceInjection](c, NewMultiServiceInjection)
 
 			multiService, err := Resolve[MultiServiceInjection](CreateChildContainer(c))
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			values := multiService.GetMultiValue()
-			assert.Equal(t, []int{12, 13}, values)
+			require.Equal(t, []int{12, 13}, values)
 		})
 
 		t.Run("should return error on Resolve", func(t *testing.T) {
@@ -340,7 +362,7 @@ func TestRegisterScoped(t *testing.T) {
 
 			_, err := Resolve[[]IService](CreateChildContainer(c))
 
-			assert.ErrorIs(t, err, customError)
+			require.ErrorIs(t, err, customError)
 		})
 	})
 
@@ -352,7 +374,7 @@ func TestRegisterScoped(t *testing.T) {
 		RegisterScoped[CircularDependency](c, NewCircularDependency)
 
 		_, err := Resolve[IService](CreateChildContainer(c))
-		assert.EqualError(t, err, "circular dependency detected: gosyringe.IService -> gosyringe.CircularDependency -> gosyringe.IService")
+		require.EqualError(t, err, "circular dependency detected: gosyringe.IService -> gosyringe.CircularDependency -> gosyringe.IService")
 	})
 
 	t.Run("should not allow resolution from root container", func(t *testing.T) {
@@ -363,7 +385,7 @@ func TestRegisterScoped(t *testing.T) {
 
 		_, err := Resolve[IService](c)
 
-		assert.EqualError(t, err, "cannot resolve Scoped dependencies from the root Container: gosyringe.IService")
+		require.EqualError(t, err, "cannot resolve Scoped dependencies from the root Container: gosyringe.IService")
 	})
 
 	t.Run("child container registrations take precedence", func(t *testing.T) {
@@ -379,14 +401,14 @@ func TestRegisterScoped(t *testing.T) {
 		RegisterScoped[IService](grandChildContainer, NewService)
 
 		serviceRoot, err := Resolve[IService](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		serviceChild, err := Resolve[IService](childContainer)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		serviceGrandChild, err := Resolve[IService](grandChildContainer)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		assert.Equal(t, 12, serviceRoot.GetValue())
-		assert.Equal(t, 13, serviceChild.GetValue())
-		assert.Equal(t, 12, serviceGrandChild.GetValue())
+		require.Equal(t, 12, serviceRoot.GetValue())
+		require.Equal(t, 13, serviceChild.GetValue())
+		require.Equal(t, 12, serviceGrandChild.GetValue())
 	})
 }

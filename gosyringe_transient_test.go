@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Print(n any) string {
@@ -42,12 +42,12 @@ func TestRegisterTransient(t *testing.T) {
 				container := NewContainer()
 				RegisterTransient[IService](container, tt.constructor)
 				service, err := Resolve[IService](container)
-				assert.NoError(t, err)
+				require.NoError(t, err)
 
 				value := service.GetValue()
 
-				assert.IsType(t, &Service{}, service)
-				assert.Equal(t, 12, value)
+				require.IsType(t, &Service{}, service)
+				require.Equal(t, 12, value)
 			})
 		}
 	})
@@ -98,7 +98,7 @@ func TestRegisterTransient(t *testing.T) {
 					go func() {
 						defer wg.Done()
 						instance, err := Resolve[IService](c)
-						assert.NoError(t, err, "resolve failed")
+						require.NoError(t, err, "resolve failed")
 
 						results <- instance
 					}()
@@ -118,7 +118,7 @@ func TestRegisterTransient(t *testing.T) {
 					analyzedInstances = append(analyzedInstances, instance)
 				}
 
-				assert.Equal(t, 50, constructorCallCount)
+				require.Equal(t, 50, constructorCallCount)
 			})
 		}
 	})
@@ -133,12 +133,12 @@ func TestRegisterTransient(t *testing.T) {
 		RegisterTransient[IService](c, NewOtherService)
 
 		service, err := Resolve[IService](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		value := service.GetValue()
 
-		assert.IsType(t, &OtherService{}, service)
-		assert.Equal(t, 13, value)
+		require.IsType(t, &OtherService{}, service)
+		require.Equal(t, 13, value)
 	})
 
 	t.Run("should panic with invalid constructor", func(t *testing.T) {
@@ -190,7 +190,7 @@ func TestRegisterTransient(t *testing.T) {
 				// https://stackoverflow.com/a/31596110
 				defer func() {
 					actualPanic := recover()
-					assert.Equal(t, tt.expectedPanic, actualPanic)
+					require.Equal(t, tt.expectedPanic, actualPanic)
 				}()
 
 				c := NewContainer()
@@ -217,7 +217,7 @@ func TestRegisterTransient(t *testing.T) {
 
 		_, err := Resolve[IService](c)
 
-		assert.ErrorIs(t, err, customError)
+		require.ErrorIs(t, err, customError)
 	})
 
 	t.Run("should resolve constructor with multiple parameters", func(t *testing.T) {
@@ -229,8 +229,8 @@ func TestRegisterTransient(t *testing.T) {
 
 		service, err := Resolve[IServiceFive](c)
 
-		assert.NoError(t, err)
-		assert.Equal(t, 5, service.GetValueFive())
+		require.NoError(t, err)
+		require.Equal(t, 5, service.GetValueFive())
 	})
 
 	t.Run("with slice resolution", func(t *testing.T) {
@@ -244,17 +244,17 @@ func TestRegisterTransient(t *testing.T) {
 			RegisterTransient[IService](c, NewServiceUnsafe)
 			RegisterTransient[IService](c, NewOtherService)
 			services, err := Resolve[[]IService](c)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			value := 0
 			for _, service := range services {
 				value += service.GetValue()
 			}
 
-			assert.IsType(t, &Service{}, services[0])
-			assert.IsType(t, &Service{}, services[1])
-			assert.IsType(t, &OtherService{}, services[2])
-			assert.Equal(t, 37, value)
+			require.IsType(t, &Service{}, services[0])
+			require.IsType(t, &Service{}, services[1])
+			require.IsType(t, &OtherService{}, services[2])
+			require.Equal(t, 37, value)
 		})
 
 		t.Run("should always resolve new instances", func(t *testing.T) {
@@ -292,7 +292,7 @@ func TestRegisterTransient(t *testing.T) {
 				go func() {
 					defer wg.Done()
 					instance, err := Resolve[[]IService](c)
-					assert.NoError(t, err, "resolve failed")
+					require.NoError(t, err, "resolve failed")
 
 					results <- instance
 				}()
@@ -311,11 +311,11 @@ func TestRegisterTransient(t *testing.T) {
 				analyzedInstances = append(analyzedInstances, instance)
 			}
 
-			assert.Len(t, analyzedInstances[0], 3)
+			require.Len(t, analyzedInstances[0], 3)
 
-			assert.Equal(t, 50, constructorCallCount[0])
-			assert.Equal(t, 50, constructorCallCount[1])
-			assert.Equal(t, 50, constructorCallCount[2])
+			require.Equal(t, 50, constructorCallCount[0])
+			require.Equal(t, 50, constructorCallCount[1])
+			require.Equal(t, 50, constructorCallCount[2])
 		})
 
 		t.Run("should work as parameter injection", func(t *testing.T) {
@@ -328,10 +328,10 @@ func TestRegisterTransient(t *testing.T) {
 			RegisterTransient[MultiServiceInjection](c, NewMultiServiceInjection)
 
 			multiService, err := Resolve[MultiServiceInjection](c)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			values := multiService.GetMultiValue()
-			assert.Equal(t, []int{12, 13}, values)
+			require.Equal(t, []int{12, 13}, values)
 		})
 
 		t.Run("should return error on Resolve", func(t *testing.T) {
@@ -343,7 +343,7 @@ func TestRegisterTransient(t *testing.T) {
 
 			_, err := Resolve[[]IService](c)
 
-			assert.ErrorIs(t, err, customError)
+			require.ErrorIs(t, err, customError)
 		})
 	})
 
@@ -355,6 +355,6 @@ func TestRegisterTransient(t *testing.T) {
 		RegisterTransient[CircularDependency](c, NewCircularDependency)
 
 		_, err := Resolve[IService](c)
-		assert.EqualError(t, err, "circular dependency detected: gosyringe.IService -> gosyringe.CircularDependency -> gosyringe.IService")
+		require.EqualError(t, err, "circular dependency detected: gosyringe.IService -> gosyringe.CircularDependency -> gosyringe.IService")
 	})
 }

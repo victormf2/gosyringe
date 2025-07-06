@@ -3,7 +3,7 @@ package gosyringe
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValueDependency(t *testing.T) {
@@ -17,9 +17,9 @@ func TestValueDependency(t *testing.T) {
 		RegisterValue(c, injectedValue)
 
 		value, err := Resolve[IService](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		assert.True(t, assert.ObjectsAreEqual(injectedValue, value))
+		require.Same(t, injectedValue, value)
 	})
 
 	t.Run("should resolve same value in child container", func(t *testing.T) {
@@ -33,8 +33,8 @@ func TestValueDependency(t *testing.T) {
 		RegisterValue(c, injectedValue)
 
 		value, err := Resolve[IService](c)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		assert.True(t, assert.ObjectsAreEqual(injectedValue, value))
+		require.Same(t, injectedValue, value)
 	})
 }
