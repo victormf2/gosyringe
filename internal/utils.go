@@ -1,6 +1,9 @@
 package internal
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
 
 func Map[T any, U any](values []T, mapFn func(value T) U) []U {
 	result := make([]U, len(values))
@@ -75,4 +78,50 @@ func (m *SyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
 
 	m.backMap[key] = value
 	return value, false
+}
+
+type SyncSlice[T any] struct {
+	mu        sync.RWMutex
+	backSlice []T
+}
+
+func NewSyncSlice[T any]() *SyncSlice[T] {
+	return &SyncSlice[T]{
+		backSlice: []T{},
+	}
+}
+func (s *SyncSlice[T]) Append(value T) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.backSlice = append(s.backSlice, value)
+}
+func (s *SyncSlice[T]) Snapshot() []T {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return slices.Clone(s.backSlice)
+}
+
+type RLockValue[T any] struct {
+	Value T
+	lock  sync.RWMutex
+}
+
+func NewRLockValue[T any](initialValue T) *RLockValue[T] {
+	return &RLockValue[T]{
+		Value: initialValue,
+	}
+}
+
+func (v *RLockValue[T]) Load() (T, func()) {
+	v.lock.RLock()
+	return v.Value, v.lock.RUnlock
+}
+
+func (v *RLockValue[T]) Store(value T) {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
+	v.Value = value
 }

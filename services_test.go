@@ -19,6 +19,13 @@ func NewService() IService {
 	}
 }
 
+func NewServiceWithCallback(callback func()) func() IService {
+	return func() IService {
+		callback()
+		return NewService()
+	}
+}
+
 func NewServiceUnsafe() (IService, error) {
 	return &Service{value: uuid.NewString()}, nil
 }

@@ -1,6 +1,7 @@
 package gosyringe
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"slices"
@@ -38,6 +39,13 @@ type Container struct {
 	// The Container created with [NewContainer]. This is mainly used for stuff related to
 	// Singleton, as I defined that Singletons can only be registered in root Container.
 	root *Container
+	// Dispose functions are registered with [OnDispose]. Every time an instance
+	// is resolved, it is registered as disposable if there was an [OnDispose] for its type.
+	disposeFunctions *internal.SyncMap[reflect.Type, disposeFunction]
+	// Disposables registered on resolveSingle
+	disposables *internal.SyncSlice[*disposable]
+	// Flag to control if container was disposed
+	disposed *internal.RLockValue[bool]
 }
 
 type dependencyKey struct {
@@ -53,6 +61,13 @@ func (k dependencyKey) String() string {
 	return fmt.Sprintf("%v(%v)", k.Type, k.Key)
 }
 
+type disposable struct {
+	Value           any
+	DisposeFunction disposeFunction
+}
+
+type disposeFunction func(ctx context.Context, value any)
+
 func (c *Container) isRoot() bool {
 	return c.parent == nil
 }
@@ -62,34 +77,41 @@ func (c *Container) getDependencyRegistration(registrationKey dependencyKey) (*d
 }
 
 type dependencyRegistration struct {
-	mu           sync.Mutex
-	lifetime     dependencyLifetime
-	constructors []constructor
+	mu               sync.Mutex
+	lifetime         dependencyLifetime
+	constructorInfos []functionInfo
 }
 
-type constructor struct {
-	cType     reflect.Type
-	function  reflect.Value
-	arguments []reflect.Type
+type functionInfo struct {
+	Type          reflect.Type
+	Value         reflect.Value
+	ArgumentTypes []reflect.Type
+}
+
+func newFunctionInfo(functionValue reflect.Value) functionInfo {
+	functionType := functionValue.Type()
+	numberOfArguments := functionType.NumIn()
+	arguments := make([]reflect.Type, numberOfArguments)
+	for i := range numberOfArguments {
+		arguments[i] = functionType.In(i)
+	}
+
+	functionInfo := functionInfo{
+		Type:          functionType,
+		Value:         functionValue,
+		ArgumentTypes: arguments,
+	}
+
+	return functionInfo
 }
 
 func (dr *dependencyRegistration) AppendConstructor(constructorFunction reflect.Value) {
 	dr.mu.Lock()
 	defer dr.mu.Unlock()
 
-	constructorType := constructorFunction.Type()
-	numberOfArguments := constructorType.NumIn()
-	arguments := make([]reflect.Type, numberOfArguments)
-	for i := range numberOfArguments {
-		arguments[i] = constructorType.In(i)
-	}
+	constructorInfo := newFunctionInfo(constructorFunction)
 
-	constructor := constructor{
-		cType:     constructorType,
-		function:  constructorFunction,
-		arguments: arguments,
-	}
-	dr.constructors = append(dr.constructors, constructor)
+	dr.constructorInfos = append(dr.constructorInfos, constructorInfo)
 }
 
 type dependencyLifetime int
@@ -126,14 +148,18 @@ func CreateChildContainer(c *Container) *Container {
 	container.parent = c
 	container.root = c.root
 	container.registry.Parent = c.registry
+	container.disposeFunctions.Parent = c.disposeFunctions
 	return container
 }
 
 func initContainer() *Container {
 	container := &Container{
-		registry:        internal.NewSyncMap[dependencyKey, *dependencyRegistration](),
-		instances:       internal.NewSyncMap[dependencyKey, any](),
-		resolutionLocks: internal.NewSyncMap[dependencyKey, *sync.Mutex](),
+		registry:         internal.NewSyncMap[dependencyKey, *dependencyRegistration](),
+		instances:        internal.NewSyncMap[dependencyKey, any](),
+		resolutionLocks:  internal.NewSyncMap[dependencyKey, *sync.Mutex](),
+		disposeFunctions: internal.NewSyncMap[reflect.Type, disposeFunction](),
+		disposables:      internal.NewSyncSlice[*disposable](),
+		disposed:         internal.NewRLockValue(false),
 	}
 
 	RegisterValue(container, container)
@@ -250,6 +276,12 @@ func RegisterValue[T any](c *Container, value T) {
 }
 
 func registerConstructor(c *Container, registrationKey dependencyKey, constructorFunctionInstance any, lifetime dependencyLifetime) {
+	isDisposed, unlock := c.disposed.Load()
+	defer unlock()
+
+	if isDisposed {
+		panic("cannot register on a disposed container")
+	}
 	constructorFunction := reflect.ValueOf(constructorFunctionInstance)
 	constructorType := constructorFunction.Type()
 
@@ -276,8 +308,8 @@ func registerConstructor(c *Container, registrationKey dependencyKey, constructo
 	}
 
 	depReg, _ := c.registry.LoadOrStore(registrationKey, &dependencyRegistration{
-		lifetime:     lifetime,
-		constructors: []constructor{},
+		lifetime:         lifetime,
+		constructorInfos: []functionInfo{},
 	})
 
 	if depReg.lifetime != lifetime {
@@ -348,6 +380,8 @@ type resolutionContext struct {
 	mainLifetime dependencyLifetime
 	// This is to track nested resolutions to identify cyclic dependencies.
 	stack []dependencyKey
+	// This is to add disposables
+	dependencyRegistration *dependencyRegistration
 }
 
 func (rc resolutionContext) push(resolutionKey dependencyKey) resolutionContext {
@@ -375,6 +409,12 @@ func (rc resolutionContext) dependencyGraphString() string {
 }
 
 func resolve(parentResolutionContext resolutionContext, resolutionKey dependencyKey) (any, error) {
+	isDisposed, unlock := parentResolutionContext.container.disposed.Load()
+	defer unlock()
+
+	if isDisposed {
+		return nil, fmt.Errorf("cannot resolve on a disposed container")
+	}
 	currentResolutionContext := parentResolutionContext.push(resolutionKey)
 
 	container := currentResolutionContext.container
@@ -396,6 +436,7 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 	if !found {
 		return nil, fmt.Errorf("no constructor registered for type %v", actualResolutionKey)
 	}
+	currentResolutionContext.dependencyRegistration = dependencyRegistration
 
 	var cacheContainer *Container
 	if dependencyRegistration.lifetime == singleton {
@@ -458,7 +499,7 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 		}
 	}
 
-	constructors := dependencyRegistration.constructors
+	constructors := dependencyRegistration.constructorInfos
 
 	var value reflect.Value
 
@@ -500,32 +541,19 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 // with the resolved dependencies.
 //
 // It also handles constructors that return a (value, error) tuple.
-func resolveSingle(resolutionContext resolutionContext, constructor constructor, resolutionKey dependencyKey) (reflect.Value, error) {
-	var zero reflect.Value // reflect.Value{} is possible, but it turns out declaring a zero value is a good idea regardless
-	constructorType := constructor.cType
-	if constructorType.Kind() != reflect.Func {
-		panic("constructor should be a function")
+//
+//	.																																						 .resolutionKey is just for error messages
+func resolveSingle(resolutionContext resolutionContext, constructor functionInfo, resolutionKey dependencyKey) (reflect.Value, error) {
+	var zero reflect.Value
+
+	resolutionResult, err := invoke(constructor, resolutionContext, invokeMessageOptions{
+		InvokeTargetType:     "constructor",
+		InvokeTargetFullName: fmt.Sprintf("constructor for %v", resolutionKey),
+	})
+
+	if err != nil {
+		return zero, err
 	}
-	callArguments := make([]reflect.Value, len(constructor.arguments))
-	for argumentIndex, argumentType := range constructor.arguments {
-		argumentResolutionKey := dependencyKey{
-			Type: argumentType,
-		}
-
-		argumentValue, err := resolve(resolutionContext, argumentResolutionKey)
-
-		if err != nil {
-			// Helping with more concise error message in case of circular dependency detection
-			if strings.Contains(err.Error(), "circular dependency detected") {
-				return zero, err
-			}
-
-			return zero, fmt.Errorf("failed to resolve argument %v of constructor for %v: %w", argumentIndex, resolutionKey, err)
-		}
-		callArguments[argumentIndex] = reflect.ValueOf(argumentValue)
-	}
-
-	resolutionResult := constructor.function.Call(callArguments)
 
 	value := resolutionResult[0]
 
@@ -536,5 +564,90 @@ func resolveSingle(resolutionContext resolutionContext, constructor constructor,
 		}
 	}
 
+	disposeContainer := resolutionContext.container
+	if resolutionContext.dependencyRegistration.lifetime == singleton {
+		disposeContainer = disposeContainer.root
+	}
+	disposeFunction, found := disposeContainer.disposeFunctions.Load(resolutionKey.Type)
+	if found {
+		disposeContainer.disposables.Append(&disposable{
+			Value:           value.Interface(),
+			DisposeFunction: disposeFunction,
+		})
+	}
+
 	return value, nil
+}
+
+// Registers a callback to be called on [Dispose]. The callback will be called for
+// any instance resolved with the type [T], even those registered with key.
+func OnDispose[T any](c *Container, disposeFunction func(ctx context.Context, value T)) {
+	c.disposeFunctions.Store(reflect.TypeFor[T](), func(ctx context.Context, value any) {
+		disposeFunction(ctx, value.(T))
+	})
+}
+
+// Calls the callbacks registered with [OnDispose]. Callbacks are done in parallel.
+// It waits until all dispose callbacks are done or the context timeout, whichever
+// comes first.
+//
+// Returns true if all callbacks finished, false if reached timeout before.
+func Dispose(ctx context.Context, c *Container) bool {
+	c.disposed.Store(true)
+
+	var wg sync.WaitGroup
+	disposables := c.disposables.Snapshot()
+	for _, d := range disposables {
+		wg.Add(1)
+		go func(disposable *disposable) {
+			defer wg.Done()
+			disposable.DisposeFunction(ctx, disposable.Value)
+		}(d)
+	}
+
+	waitGroupDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waitGroupDone)
+	}()
+
+	select {
+	case <-waitGroupDone:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+type invokeMessageOptions struct {
+	InvokeTargetType     string
+	InvokeTargetFullName string
+}
+
+func invoke(function functionInfo, resolutionContext resolutionContext, messageOptions invokeMessageOptions) ([]reflect.Value, error) {
+	functionType := function.Type
+	if functionType.Kind() != reflect.Func {
+		panic(fmt.Sprintf("%s should be a function", messageOptions.InvokeTargetType))
+	}
+	callArguments := make([]reflect.Value, len(function.ArgumentTypes))
+	for argumentIndex, argumentType := range function.ArgumentTypes {
+		argumentResolutionKey := dependencyKey{
+			Type: argumentType,
+		}
+
+		argumentValue, err := resolve(resolutionContext, argumentResolutionKey)
+
+		if err != nil {
+			// Helping with more concise error message in case of circular dependency detection
+			if strings.Contains(err.Error(), "circular dependency detected") {
+				return nil, err
+			}
+
+			return nil, fmt.Errorf("failed to resolve argument %v of %v: %w", argumentIndex, messageOptions.InvokeTargetFullName, err)
+		}
+		callArguments[argumentIndex] = reflect.ValueOf(argumentValue)
+	}
+
+	resolutionResult := function.Value.Call(callArguments)
+	return resolutionResult, nil
 }

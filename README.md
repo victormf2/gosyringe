@@ -2,13 +2,14 @@
 
 gosyringe is a depency injection library for Go inspired in [tsyringe](https://github.com/microsoft/tsyringe).
 
-## Dependency injection in Go? Why do I need this?
+## Why do I need this?
 
-Well, if you don't want to waste your time setting up your application entrypoint by repeatedly passing repositories and services drilling down constructor calls, then this library is for you.
+This is good for:
+- Application setups like wiring services constructor calls automatically
+- Centralized configuration
+- Makes it easy writing tests with mocks
 
-This is also very useful for test setups.
-
-Don't take my word for it, go see the [examples](./internal/examples).
+Don't take my word for it, go see the [examples](./internal/examples/README.md).
 
 ## Getting Started
 
@@ -24,7 +25,9 @@ go get -u github.com/victormf2/gosyringe
 
 ### Usage example
 
-To use gosyringe, you register your services and configurations in a container, then you resolve the dependencies from the container to use them.
+To use gosyringe, you register your services and configurations in a container, then you resolve a service from the container to use it.
+
+The service instantiation, as well its parameters is done automatically.
 
 ```go
 package main
@@ -44,15 +47,15 @@ type IService interface {
 	DoSomething(something Something) error
 }
 
-type ISomethingRepository interface {
+type IRepository interface {
 	SaveSomething(something Something) error
 }
 
 type Service struct {
-	repository ISomethingRepository
+	repository IRepository
 }
 
-func NewService(repository ISomethingRepository) IService {
+func NewService(repository IRepository) IService {
 	return Service{
 		repository,
 	}
@@ -63,13 +66,13 @@ func (s Service) DoSomething(something Something) error {
 	return s.repository.SaveSomething(something)
 }
 
-type SomethingRepository struct{}
+type Repository struct{}
 
-func NewSomethingReposiory() ISomethingRepository {
-	return SomethingRepository{}
+func NewRepository() IRepository {
+	return Repository{}
 }
 
-func (r SomethingRepository) SaveSomething(something Something) error {
+func (r Repository) SaveSomething(something Something) error {
 	fmt.Printf("saving something %s", something.Title)
 	return nil
 }
@@ -78,12 +81,12 @@ func main() {
 	// First create a Container.
 	c := gosyringe.NewContainer()
 
-  // You can register the dependencies in any order.
+  // You can register the services in any order.
 	gosyringe.RegisterSingleton[IService](c, NewService)
-	gosyringe.RegisterSingleton[ISomethingRepository](c, NewSomethingReposiory)
+	gosyringe.RegisterSingleton[IRepository](c, NewRepository)
 
 	// Resolving the service automativally instantiate its dependencies,
-	// a ISomethingRepository in this example.
+	// a IRepository in this example.
 	service, err := gosyringe.Resolve[IService](c)
 	if err != nil {
 		panic(fmt.Sprintf("failed to resolve service: %v", err))
@@ -489,5 +492,60 @@ func main() {
 
 	fmt.Println(oneService.GetSomething())     // one
 	fmt.Println(anotherService.GetSomething()) // another
+}
+```
+
+## Dispose
+
+gosyringe provides a way to run cleanup code for registered dependencies.
+
+When calling `gosyringe.Dispose(c)` all registered dispose actions with `gosyringe.OnDispose` will be called for resolved instances.
+
+Singleton dependencies can be only disposed with root container. All other instances can be only disposed with the container they were resolved from.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/victormf2/gosyringe"
+)
+
+type Service struct{}
+
+func NewService() *Service {
+	return &Service{}
+}
+
+func (s *Service) DoSomething() {
+	fmt.Println("doing stuff")
+}
+
+func (s *Service) Close() {
+	fmt.Println("releasing allocated resources")
+}
+
+func main() {
+	ctx := context.Background()
+	c := gosyringe.NewContainer()
+
+	gosyringe.RegisterSingleton[*Service](c, NewService)
+	gosyringe.OnDispose(c, func(ctx context.Context, service *Service) {
+		service.Close()
+	})
+
+	service, _ := gosyringe.Resolve[*Service](c)
+
+	service.DoSomething() // doing stuff
+
+	// it's usually good to give a timeout for Dispose,
+	// specially when it's done on application SIGTERM or SIGINT
+	disposeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	gosyringe.Dispose(disposeCtx, c) // releasing allocated resources
 }
 ```
