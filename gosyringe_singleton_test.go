@@ -211,27 +211,21 @@ func TestRegisterSingleton(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
-				// https://stackoverflow.com/a/31596110
-				defer func() {
-					actualPanic := recover()
-					require.Equal(t, tt.expectedPanic, actualPanic)
-				}()
-
 				c := NewContainer()
 
-				RegisterSingleton[IService](c, tt.constructor)
+				require.PanicsWithError(t, tt.expectedPanic, func() {
+					RegisterSingleton[IService](c, tt.constructor)
+				})
 			})
 		}
 	})
 
 	t.Run("should panic when registering Singleton from child container", func(t *testing.T) {
-		defer func() {
-			actualPanic := recover()
-			require.Equal(t, "Singletons can only be registered at a root container: gosyringe.IService", actualPanic)
-		}()
-
 		c := CreateChildContainer(NewContainer())
-		RegisterSingleton[IService](c, NewService)
+
+		require.PanicsWithError(t, "Singleton can only be registered at a root container: gosyringe.IService", func() {
+			RegisterSingleton[IService](c, NewService)
+		})
 	})
 
 	t.Run("should accept custom error return", func(t *testing.T) {

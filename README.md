@@ -495,11 +495,76 @@ func main() {
 }
 ```
 
-## Dispose
+## Application lifecycle
 
-gosyringe provides a way to run cleanup code for registered dependencies.
+Instead of manually managing startup actions and disposing long lived resources, you can register them in a `Container` with `gosyringe.OnStart` and `gosyringe.OnDispose` and gosyringe will run them automatically for you when calling `gosyringe.Start` and `gosyringe.Dispose`.
 
-When calling `gosyringe.Dispose(c)` all registered dispose actions with `gosyringe.OnDispose` will be called for resolved instances.
+This is convenient when, for example, you have to setup multiple consumers, or gracefully shutdown a web server.
+
+The main idea is to decouple defining a service lifecycle behavior from when it have to happen.
+
+### Start
+
+When calling `gosyringe.Start`, all registered start actions with `gosyringe.OnStart` or `gosyringe.OnStartWithKey` will be called in parallel. The necessary dependencies will be resolved automatically.
+
+Currently, this only works for `Singleton` dependencies, as its intended use is for application startup logic.
+
+It works with long lived start actions, like [http Server.ListenAndServe](https://pkg.go.dev/net/http#Server.ListenAndServe), as they run in goroutines.
+
+Because everything runs in goroutines, this works best for application services that don't require startup in any specific order.
+
+If you want to control the order of start actions, you can create a service that receives the dependencies in its constructor function and call their start actions in the order you want. This way you can have multiple parallel startup sequences.
+
+```go
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/victormf2/gosyringe"
+)
+
+type Service struct{}
+
+func NewService() *Service {
+	return &Service{}
+}
+
+func (s *Service) Start() {
+	start := time.Now()
+	for {
+		time.Sleep(1 * time.Second)
+
+		elapsed := time.Since(start)
+		fmt.Printf("service running for %v\n", elapsed)
+	}
+}
+
+func main() {
+
+	c := gosyringe.NewContainer()
+
+	gosyringe.RegisterSingleton[*Service](c, NewService)
+	gosyringe.OnStart(c, func(service *Service) {
+		service.Start()
+	})
+
+	// This returns immediately and spawns a goroutine for *Service
+	gosyringe.Start(c)
+
+	fmt.Println("Press Enter to finish...")
+	bufio.NewReader(os.Stdin).ReadBytes('\n')
+	fmt.Println("Finished.")
+}
+
+```
+
+### Dispose
+
+When calling `gosyringe.Dispose`, all registered dispose actions with `gosyringe.OnDispose` will be called for instances that have been resolved.
 
 Singleton dependencies can be only disposed with root container. All other instances can be only disposed with the container they were resolved from.
 

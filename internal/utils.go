@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"maps"
 	"slices"
 	"sync"
 )
@@ -80,6 +81,13 @@ func (m *SyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
 	return value, false
 }
 
+func (s *SyncMap[K, V]) Snapshot() map[K]V {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return maps.Clone(s.backMap)
+}
+
 type SyncSlice[T any] struct {
 	mu        sync.RWMutex
 	backSlice []T
@@ -119,9 +127,13 @@ func (v *RLockValue[T]) Load() (T, func()) {
 	return v.Value, v.lock.RUnlock
 }
 
-func (v *RLockValue[T]) Store(value T) {
+// Returns old value
+func (v *RLockValue[T]) Store(value T) T {
 	v.lock.Lock()
 	defer v.lock.Unlock()
 
+	oldValue := v.Value
 	v.Value = value
+
+	return oldValue
 }

@@ -205,15 +205,11 @@ func TestRegisterScoped(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
-				// https://stackoverflow.com/a/31596110
-				defer func() {
-					actualPanic := recover()
-					require.Equal(t, tt.expectedPanic, actualPanic)
-				}()
-
 				c := NewContainer()
 
-				RegisterScoped[IService](c, tt.constructor)
+				require.PanicsWithError(t, tt.expectedPanic, func() {
+					RegisterScoped[IService](c, tt.constructor)
+				})
 			})
 		}
 	})

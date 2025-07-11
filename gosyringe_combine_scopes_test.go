@@ -69,13 +69,11 @@ func TestCombineScopes(t *testing.T) {
 
 				c := NewContainer()
 
-				defer func() {
-					actualPanic := recover()
-					require.Equal(t, tt.expectedPanic, actualPanic)
-				}()
-
 				tt.first(c, NewService)
-				tt.second(c, NewService)
+
+				require.PanicsWithError(t, tt.expectedPanic, func() {
+					tt.second(c, NewService)
+				})
 			})
 		}
 	})

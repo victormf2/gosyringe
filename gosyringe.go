@@ -39,13 +39,19 @@ type Container struct {
 	// The Container created with [NewContainer]. This is mainly used for stuff related to
 	// Singleton, as I defined that Singletons can only be registered in root Container.
 	root *Container
-	// Dispose functions are registered with [OnDispose]. Every time an instance
+	// Dispose callbacks are registered with [OnDispose]. Every time an instance
 	// is resolved, it is registered as disposable if there was an [OnDispose] for its type.
-	disposeFunctions *internal.SyncMap[reflect.Type, disposeFunction]
+	disposeCallbacks *internal.SyncMap[reflect.Type, disposeCallback]
 	// Disposables registered on resolveSingle
 	disposables *internal.SyncSlice[*disposable]
 	// Flag to control if container was disposed
 	disposed *internal.RLockValue[bool]
+	// Start callbacks are registered with [OnStart]. Container will automatically
+	// resolve all dependencies registered here when calling [Start]. Available
+	// only for Singleton registrations.
+	startCallbacks *internal.SyncMap[dependencyKey, startCallback]
+	// Flag to control if container was started
+	started *internal.RLockValue[bool]
 }
 
 type dependencyKey struct {
@@ -62,11 +68,13 @@ func (k dependencyKey) String() string {
 }
 
 type disposable struct {
-	Value           any
-	DisposeFunction disposeFunction
+	Value   any
+	Dispose disposeCallback
 }
 
-type disposeFunction func(ctx context.Context, value any)
+type disposeCallback func(ctx context.Context, value any)
+
+type startCallback func(value any)
 
 func (c *Container) isRoot() bool {
 	return c.parent == nil
@@ -148,7 +156,7 @@ func CreateChildContainer(c *Container) *Container {
 	container.parent = c
 	container.root = c.root
 	container.registry.Parent = c.registry
-	container.disposeFunctions.Parent = c.disposeFunctions
+	container.disposeCallbacks.Parent = c.disposeCallbacks
 	return container
 }
 
@@ -157,9 +165,11 @@ func initContainer() *Container {
 		registry:         internal.NewSyncMap[dependencyKey, *dependencyRegistration](),
 		instances:        internal.NewSyncMap[dependencyKey, any](),
 		resolutionLocks:  internal.NewSyncMap[dependencyKey, *sync.Mutex](),
-		disposeFunctions: internal.NewSyncMap[reflect.Type, disposeFunction](),
+		disposeCallbacks: internal.NewSyncMap[reflect.Type, disposeCallback](),
 		disposables:      internal.NewSyncSlice[*disposable](),
 		disposed:         internal.NewRLockValue(false),
+		startCallbacks:   internal.NewSyncMap[dependencyKey, startCallback](),
+		started:          internal.NewRLockValue(false),
 	}
 
 	RegisterValue(container, container)
@@ -187,7 +197,7 @@ func RegisterTransient[T any](c *Container, constructor any) {
 // Dependencies registered with key can be resolved with [ResolveWithKey]
 func RegisterTransientWithKey[T any](c *Container, key string, constructor any) {
 	if len(key) == 0 {
-		panic(fmt.Sprintf("registration key for type %v cannot be empty", reflect.TypeFor[T]()))
+		panic(fmt.Errorf("registration key for type %v cannot be empty", reflect.TypeFor[T]()))
 	}
 	registrationKey := dependencyKey{
 		Key:  key,
@@ -222,7 +232,7 @@ func RegisterScoped[T any](c *Container, constructor any) {
 // Dependencies registered with key can be resolved with [ResolveWithKey]
 func RegisterScopedWithKey[T any](c *Container, key string, constructor any) {
 	if len(key) == 0 {
-		panic(fmt.Sprintf("registration key for type %v cannot be empty", reflect.TypeFor[T]()))
+		panic(fmt.Errorf("registration key for type %v cannot be empty", reflect.TypeFor[T]()))
 	}
 	registrationKey := dependencyKey{
 		Key:  key,
@@ -252,7 +262,7 @@ func RegisterSingleton[T any](c *Container, constructor any) {
 // Dependencies registered with key can be resolved with [ResolveWithKey]
 func RegisterSingletonWithKey[T any](c *Container, key string, constructor any) {
 	if len(key) == 0 {
-		panic(fmt.Sprintf("registration key for type %v cannot be empty", reflect.TypeFor[T]()))
+		panic(fmt.Errorf("registration key for type %v cannot be empty", reflect.TypeFor[T]()))
 	}
 	registrationKey := dependencyKey{
 		Key:  key,
@@ -280,19 +290,19 @@ func registerConstructor(c *Container, registrationKey dependencyKey, constructo
 	defer unlock()
 
 	if isDisposed {
-		panic("cannot register on a disposed container")
+		panic(fmt.Errorf("cannot register on a disposed container"))
 	}
 	constructorFunction := reflect.ValueOf(constructorFunctionInstance)
 	constructorType := constructorFunction.Type()
 
 	if constructorType.Kind() != reflect.Func || constructorType.NumOut() < 1 || constructorType.NumOut() > 2 {
-		panic("constructor must be a function returning exactly one value, or a value and an error")
+		panic(fmt.Errorf("constructor must be a function returning exactly one value, or a value and an error"))
 	}
 
 	if constructorType.NumOut() == 2 {
 		errorType := constructorType.Out(1)
 		if !errorType.AssignableTo(reflect.TypeFor[error]()) {
-			panic("constructor must be a function returning exactly one value, or a value and an error")
+			panic(fmt.Errorf("constructor must be a function returning exactly one value, or a value and an error"))
 		}
 	}
 
@@ -300,11 +310,11 @@ func registerConstructor(c *Container, registrationKey dependencyKey, constructo
 	registerType := registrationKey.Type
 
 	if dependencyType != registerType {
-		panic(fmt.Sprintf("the type parameter %v must be equal to the return type of the constructor %v", registerType, dependencyType))
+		panic(fmt.Errorf("the type parameter %v must be equal to the return type of the constructor %v", registerType, dependencyType))
 	}
 
 	if lifetime == singleton && !c.isRoot() {
-		panic(fmt.Sprintf("Singletons can only be registered at a root container: %v", registerType))
+		panic(fmt.Errorf("%v can only be registered at a root container: %v", singleton, registerType))
 	}
 
 	depReg, _ := c.registry.LoadOrStore(registrationKey, &dependencyRegistration{
@@ -313,7 +323,7 @@ func registerConstructor(c *Container, registrationKey dependencyKey, constructo
 	})
 
 	if depReg.lifetime != lifetime {
-		panic(fmt.Sprintf("cannot register type %v as %v, because it was already registered as %v", dependencyType, lifetime, depReg.lifetime))
+		panic(fmt.Errorf("cannot register type %v as %v, because it was already registered as %v", dependencyType, lifetime, depReg.lifetime))
 	}
 	depReg.AppendConstructor(constructorFunction)
 }
@@ -336,10 +346,7 @@ func registerConstructor(c *Container, registrationKey dependencyKey, constructo
 // In the case of slice type, the resolution will stop at the first element instantiation
 // error.
 func Resolve[T any](c *Container) (T, error) {
-	resolutionContext := resolutionContext{
-		container: c,
-		stack:     []dependencyKey{},
-	}
+	resolutionContext := newResolutionContext(c)
 	resolutionKey := dependencyKey{
 		Type: reflect.TypeFor[T](),
 	}
@@ -356,10 +363,7 @@ func Resolve[T any](c *Container) (T, error) {
 //
 // Works the same as [Resolve] but use a key and a type for resolution.
 func ResolveWithKey[T any](c *Container, key string) (T, error) {
-	resolutionContext := resolutionContext{
-		container: c,
-		stack:     []dependencyKey{},
-	}
+	resolutionContext := newResolutionContext(c)
 	resolutionKey := dependencyKey{
 		Key:  key,
 		Type: reflect.TypeFor[T](),
@@ -380,8 +384,16 @@ type resolutionContext struct {
 	mainLifetime dependencyLifetime
 	// This is to track nested resolutions to identify cyclic dependencies.
 	stack []dependencyKey
-	// This is to add disposables
+	// This is to determine container to add disposables to.
 	dependencyRegistration *dependencyRegistration
+}
+
+func newResolutionContext(c *Container) resolutionContext {
+	resolutionContext := resolutionContext{
+		container: c,
+		stack:     []dependencyKey{},
+	}
+	return resolutionContext
 }
 
 func (rc resolutionContext) push(resolutionKey dependencyKey) resolutionContext {
@@ -421,6 +433,7 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 
 	requestedResolutionKey := resolutionKey
 	actualResolutionKey := resolutionKey
+	// TODO 16
 	isSlice := resolutionKey.Type.Kind() == reflect.Slice
 	if isSlice {
 		actualResolutionKey = dependencyKey{
@@ -568,55 +581,15 @@ func resolveSingle(resolutionContext resolutionContext, constructor functionInfo
 	if resolutionContext.dependencyRegistration.lifetime == singleton {
 		disposeContainer = disposeContainer.root
 	}
-	disposeFunction, found := disposeContainer.disposeFunctions.Load(resolutionKey.Type)
+	disposeCallback, found := disposeContainer.disposeCallbacks.Load(resolutionKey.Type)
 	if found {
 		disposeContainer.disposables.Append(&disposable{
-			Value:           value.Interface(),
-			DisposeFunction: disposeFunction,
+			Value:   value.Interface(),
+			Dispose: disposeCallback,
 		})
 	}
 
 	return value, nil
-}
-
-// Registers a callback to be called on [Dispose]. The callback will be called for
-// any instance resolved with the type [T], even those registered with key.
-func OnDispose[T any](c *Container, disposeFunction func(ctx context.Context, value T)) {
-	c.disposeFunctions.Store(reflect.TypeFor[T](), func(ctx context.Context, value any) {
-		disposeFunction(ctx, value.(T))
-	})
-}
-
-// Calls the callbacks registered with [OnDispose]. Callbacks are done in parallel.
-// It waits until all dispose callbacks are done or the context timeout, whichever
-// comes first.
-//
-// Returns true if all callbacks finished, false if reached timeout before.
-func Dispose(ctx context.Context, c *Container) bool {
-	c.disposed.Store(true)
-
-	var wg sync.WaitGroup
-	disposables := c.disposables.Snapshot()
-	for _, d := range disposables {
-		wg.Add(1)
-		go func(disposable *disposable) {
-			defer wg.Done()
-			disposable.DisposeFunction(ctx, disposable.Value)
-		}(d)
-	}
-
-	waitGroupDone := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(waitGroupDone)
-	}()
-
-	select {
-	case <-waitGroupDone:
-		return true
-	case <-ctx.Done():
-		return false
-	}
 }
 
 type invokeMessageOptions struct {
@@ -627,7 +600,7 @@ type invokeMessageOptions struct {
 func invoke(function functionInfo, resolutionContext resolutionContext, messageOptions invokeMessageOptions) ([]reflect.Value, error) {
 	functionType := function.Type
 	if functionType.Kind() != reflect.Func {
-		panic(fmt.Sprintf("%s should be a function", messageOptions.InvokeTargetType))
+		panic(fmt.Errorf("%s should be a function", messageOptions.InvokeTargetType))
 	}
 	callArguments := make([]reflect.Value, len(function.ArgumentTypes))
 	for argumentIndex, argumentType := range function.ArgumentTypes {
@@ -650,4 +623,173 @@ func invoke(function functionInfo, resolutionContext resolutionContext, messageO
 
 	resolutionResult := function.Value.Call(callArguments)
 	return resolutionResult, nil
+}
+
+// Registers a callback to be called on [Dispose]. The callback will be called for
+// any instance resolved with the type [T], even those registered with key.
+func OnDispose[T any](c *Container, callback func(ctx context.Context, value T)) {
+	isDisposed, unlock := c.disposed.Load()
+	defer unlock()
+
+	if isDisposed {
+		panic(fmt.Errorf("cannot register dispose callback on a disposed container"))
+	}
+
+	c.disposeCallbacks.Store(reflect.TypeFor[T](), func(ctx context.Context, value any) {
+		callback(ctx, value.(T))
+	})
+}
+
+type DisposeResult int
+
+const (
+	DisposeResultAlreadyDisposed DisposeResult = 0
+	DisposeResultDone            DisposeResult = 1
+	DisposeResultCtxDone         DisposeResult = 2
+)
+
+// Calls the callbacks registered with [OnDispose]. Callbacks are executed in parallel,
+// each in a separate goroutine.
+//
+// It waits until all dispose callbacks are done or the context is done, whichever
+// comes first.
+//
+// If container was already disposed, it's a noop returning [DisposeResultAlreadyDisposed].
+//
+// If all dispose callbacks finished executing before context is done, returns [DisposeResultDone].
+//
+// If context is done before all callbacks, return [DisposeResultCtxDone]
+func Dispose(ctx context.Context, c *Container) DisposeResult {
+	wasDisposed := c.disposed.Store(true)
+	if wasDisposed {
+		return DisposeResultAlreadyDisposed
+	}
+
+	var wg sync.WaitGroup
+	disposables := c.disposables.Snapshot()
+	for _, d := range disposables {
+		wg.Add(1)
+		go func(disposable *disposable) {
+			defer wg.Done()
+			disposable.Dispose(ctx, disposable.Value)
+		}(d)
+	}
+
+	waitGroupDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waitGroupDone)
+	}()
+
+	select {
+	case <-waitGroupDone:
+		return DisposeResultDone
+	case <-ctx.Done():
+		return DisposeResultCtxDone
+	}
+}
+
+// Registers a callback to be called on [Start] for all Singleton dependencies
+// registered for the type [T].
+//
+// Calling [OnStart] on a non registered type [T] will panic.
+//
+// Start callback will be called in a goroutine, so it can be long running.
+func OnStart[T any](c *Container, callback func(value T)) {
+	registrationKey := dependencyKey{
+		Type: reflect.TypeFor[T](),
+	}
+	onStart(c, registrationKey, func(value any) {
+		callback(value.(T))
+	})
+}
+
+// Same as [OnStart], but with a registration key.
+func OnStartWithKey[T any](c *Container, key string, callback func(value T) error) {
+	registrationKey := dependencyKey{
+		Type: reflect.TypeFor[T](),
+		Key:  key,
+	}
+	onStart(c, registrationKey, func(value any) {
+		callback(value.(T))
+	})
+}
+
+func onStart(c *Container, registrationKey dependencyKey, callback startCallback) {
+	isDisposed, unlock := c.disposed.Load()
+	defer unlock()
+
+	if isDisposed {
+		panic(fmt.Errorf("cannot register start callback on a disposed container"))
+	}
+
+	isStarted, unlock := c.started.Load()
+	defer unlock()
+
+	if isStarted {
+		panic(fmt.Errorf("cannot register start callback on a started container"))
+	}
+
+	if !c.isRoot() {
+		panic(fmt.Errorf("cannot register start callback on a child container, only root allowed"))
+	}
+
+	registration, found := c.registry.Load(registrationKey)
+	if !found {
+		panic(fmt.Errorf("you must register a dependency for %v before a start callback", registrationKey))
+	}
+	if registration.lifetime != singleton {
+		panic(fmt.Errorf("cannot register callback on a %v dependency, only %v allowed", registration.lifetime, singleton))
+	}
+
+	c.startCallbacks.Store(registrationKey, callback)
+}
+
+// Calls the callbacks registered with [OnStart] and [OnStartWithKey].
+// Callbacks are executed in parallel, each in a separate goroutine.
+//
+// Dependencies will be resolved automatically.
+//
+// Any error on resolutions will panic, as [Start] is intended to be
+// called during application startup. It's assumed that the program
+// should exit if the startup dependencies cannot be instantiated.
+func Start(c *Container) {
+	isDisposed, unlock := c.disposed.Load()
+	defer unlock()
+
+	if isDisposed {
+		panic(fmt.Errorf("cannot start a disposed container"))
+	}
+
+	if !c.isRoot() {
+		panic(fmt.Errorf("cannot start a child container, only root allowed"))
+	}
+
+	wasStarted := c.started.Store(true)
+	if wasStarted {
+		return
+	}
+
+	startCallbacks := c.startCallbacks.Snapshot()
+	for resolutionKey, start := range startCallbacks {
+		resolutionContext := newResolutionContext(c)
+		// TODO 16
+		resolutionKeyAll := dependencyKey{
+			Key:  resolutionKey.Key,
+			Type: reflect.SliceOf(resolutionKey.Type),
+		}
+		resolvedValue, err := resolve(resolutionContext, resolutionKeyAll)
+		if err != nil {
+			panic(fmt.Errorf("failed to start dependency %v: %w", resolutionKey, err))
+		}
+		sliceValue := reflect.ValueOf(resolvedValue)
+		if sliceValue.Kind() != reflect.Slice {
+			panic(fmt.Errorf("failed to start dependency %v: expected resolved value to be a slice", resolutionKey))
+		}
+
+		for i := range sliceValue.Len() {
+			value := sliceValue.Index(i)
+			go start(value.Interface())
+		}
+	}
 }

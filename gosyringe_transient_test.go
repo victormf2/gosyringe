@@ -187,15 +187,11 @@ func TestRegisterTransient(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 
-				// https://stackoverflow.com/a/31596110
-				defer func() {
-					actualPanic := recover()
-					require.Equal(t, tt.expectedPanic, actualPanic)
-				}()
-
 				c := NewContainer()
 
-				RegisterTransient[IService](c, tt.constructor)
+				require.PanicsWithError(t, tt.expectedPanic, func() {
+					RegisterTransient[IService](c, tt.constructor)
+				})
 			})
 		}
 	})

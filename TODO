@@ -9,4 +9,10 @@
 [x] injection tokens
 [x] value registration
 [x] resolution optimizations
+[x] registration with keys
+[x] dispose
+[x] start
+[ ] clear registrations (for overrides)
+[ ] more intuitive API for slices (ResolveAll, ResolveAllWithKey, OnStartAll, OnStartAllWithKey)
+[ ] automatically dispose child containers
 [ ] improve docs
