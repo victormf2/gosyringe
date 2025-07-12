@@ -51,7 +51,7 @@ func TestDispose(t *testing.T) {
 			service.Dispose()
 		})
 
-		allServices, err := Resolve[[]IDisposable](c)
+		allServices, err := ResolveAll[IDisposable](c)
 		require.NoError(t, err)
 		require.Len(t, allServices, 3)
 

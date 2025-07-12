@@ -25,13 +25,13 @@ type Container struct {
 	// We allow multiple constructors per resolution type, because we want to be able
 	// to resolve slices of dependencies of the same type, and to override registrations
 	// as well.
-	registry *internal.SyncMap[dependencyKey, *dependencyRegistration]
+	registry *internal.SyncMap[registrationKey, *dependencyRegistration]
 	// Here is where the resolved instances are stored. You can think of it as a cache.
 	// Singleton and Scoped resolutions rely on this to work.
-	instances *internal.SyncMap[dependencyKey, any]
+	instances *internal.SyncMap[resolutionKey, any]
 	// Resolution locks are used to guarantee single instances for Singleton and Scoped
 	// registrations.
-	resolutionLocks *internal.SyncMap[dependencyKey, *sync.Mutex]
+	resolutionLocks *internal.SyncMap[resolutionKey, *sync.Mutex]
 	// If this Container was created with CreateChildContainer, then the parent will be
 	// the Container which received the call. This is supposed to be used together with
 	// RegisterScoped dependencies.
@@ -49,22 +49,48 @@ type Container struct {
 	// Start callbacks are registered with [OnStart]. Container will automatically
 	// resolve all dependencies registered here when calling [Start]. Available
 	// only for Singleton registrations.
-	startCallbacks *internal.SyncMap[dependencyKey, startCallback]
+	startCallbacks *internal.SyncMap[resolutionKey, startCallback]
 	// Flag to control if container was started
 	started *internal.RLockValue[bool]
 }
 
-type dependencyKey struct {
+type registrationKey struct {
 	Key  string
 	Type reflect.Type
 }
 
-func (k dependencyKey) String() string {
+func (k registrationKey) String() string {
 	if len(k.Key) == 0 {
 		return k.Type.String()
 	}
 
 	return fmt.Sprintf("%v(%v)", k.Type, k.Key)
+}
+
+type resolutionKey struct {
+	Key        string
+	Type       reflect.Type
+	ResolveAll bool
+}
+
+func (k resolutionKey) String() string {
+	typeStr := k.Type.String()
+	if k.ResolveAll {
+		typeStr = "[]" + typeStr
+	}
+	if len(k.Key) == 0 {
+		return typeStr
+	}
+
+	return fmt.Sprintf("%v(%v)", typeStr, k.Key)
+}
+
+func (k resolutionKey) GetRegistrationKey() registrationKey {
+	registrationKey := registrationKey{
+		Key:  k.Key,
+		Type: k.Type,
+	}
+	return registrationKey
 }
 
 type disposable struct {
@@ -80,7 +106,7 @@ func (c *Container) isRoot() bool {
 	return c.parent == nil
 }
 
-func (c *Container) getDependencyRegistration(registrationKey dependencyKey) (*dependencyRegistration, bool) {
+func (c *Container) getDependencyRegistration(registrationKey registrationKey) (*dependencyRegistration, bool) {
 	return c.registry.Load(registrationKey)
 }
 
@@ -162,13 +188,13 @@ func CreateChildContainer(c *Container) *Container {
 
 func initContainer() *Container {
 	container := &Container{
-		registry:         internal.NewSyncMap[dependencyKey, *dependencyRegistration](),
-		instances:        internal.NewSyncMap[dependencyKey, any](),
-		resolutionLocks:  internal.NewSyncMap[dependencyKey, *sync.Mutex](),
+		registry:         internal.NewSyncMap[registrationKey, *dependencyRegistration](),
+		instances:        internal.NewSyncMap[resolutionKey, any](),
+		resolutionLocks:  internal.NewSyncMap[resolutionKey, *sync.Mutex](),
 		disposeCallbacks: internal.NewSyncMap[reflect.Type, disposeCallback](),
 		disposables:      internal.NewSyncSlice[*disposable](),
 		disposed:         internal.NewRLockValue(false),
-		startCallbacks:   internal.NewSyncMap[dependencyKey, startCallback](),
+		startCallbacks:   internal.NewSyncMap[resolutionKey, startCallback](),
 		started:          internal.NewRLockValue(false),
 	}
 
@@ -186,7 +212,7 @@ func initContainer() *Container {
 //
 // If RegisterTransient is called multiple times, the last registration is considered for resolution.
 func RegisterTransient[T any](c *Container, constructor any) {
-	registrationKey := dependencyKey{
+	registrationKey := registrationKey{
 		Type: reflect.TypeFor[T](),
 	}
 	registerConstructor(c, registrationKey, constructor, transient)
@@ -199,7 +225,7 @@ func RegisterTransientWithKey[T any](c *Container, key string, constructor any) 
 	if len(key) == 0 {
 		panic(fmt.Errorf("registration key for type %v cannot be empty", reflect.TypeFor[T]()))
 	}
-	registrationKey := dependencyKey{
+	registrationKey := registrationKey{
 		Key:  key,
 		Type: reflect.TypeFor[T](),
 	}
@@ -221,7 +247,7 @@ func RegisterTransientWithKey[T any](c *Container, key string, constructor any) 
 //
 // If RegisterScoped is called multiple times, the last registration is considered for resolution.
 func RegisterScoped[T any](c *Container, constructor any) {
-	registrationKey := dependencyKey{
+	registrationKey := registrationKey{
 		Type: reflect.TypeFor[T](),
 	}
 	registerConstructor(c, registrationKey, constructor, scoped)
@@ -234,7 +260,7 @@ func RegisterScopedWithKey[T any](c *Container, key string, constructor any) {
 	if len(key) == 0 {
 		panic(fmt.Errorf("registration key for type %v cannot be empty", reflect.TypeFor[T]()))
 	}
-	registrationKey := dependencyKey{
+	registrationKey := registrationKey{
 		Key:  key,
 		Type: reflect.TypeFor[T](),
 	}
@@ -251,7 +277,7 @@ func RegisterScopedWithKey[T any](c *Container, key string, constructor any) {
 //
 // If RegisterSingleton is called multiple times, the last registration is considered for resolution.
 func RegisterSingleton[T any](c *Container, constructor any) {
-	registrationKey := dependencyKey{
+	registrationKey := registrationKey{
 		Type: reflect.TypeFor[T](),
 	}
 	registerConstructor(c, registrationKey, constructor, singleton)
@@ -264,7 +290,7 @@ func RegisterSingletonWithKey[T any](c *Container, key string, constructor any) 
 	if len(key) == 0 {
 		panic(fmt.Errorf("registration key for type %v cannot be empty", reflect.TypeFor[T]()))
 	}
-	registrationKey := dependencyKey{
+	registrationKey := registrationKey{
 		Key:  key,
 		Type: reflect.TypeFor[T](),
 	}
@@ -285,7 +311,7 @@ func RegisterValue[T any](c *Container, value T) {
 	}
 }
 
-func registerConstructor(c *Container, registrationKey dependencyKey, constructorFunctionInstance any, lifetime dependencyLifetime) {
+func registerConstructor(c *Container, registrationKey registrationKey, constructorFunctionInstance any, lifetime dependencyLifetime) {
 	isDisposed, unlock := c.disposed.Load()
 	defer unlock()
 
@@ -347,7 +373,7 @@ func registerConstructor(c *Container, registrationKey dependencyKey, constructo
 // error.
 func Resolve[T any](c *Container) (T, error) {
 	resolutionContext := newResolutionContext(c)
-	resolutionKey := dependencyKey{
+	resolutionKey := resolutionKey{
 		Type: reflect.TypeFor[T](),
 	}
 	var zero T
@@ -364,7 +390,7 @@ func Resolve[T any](c *Container) (T, error) {
 // Works the same as [Resolve] but use a key and a type for resolution.
 func ResolveWithKey[T any](c *Container, key string) (T, error) {
 	resolutionContext := newResolutionContext(c)
-	resolutionKey := dependencyKey{
+	resolutionKey := resolutionKey{
 		Key:  key,
 		Type: reflect.TypeFor[T](),
 	}
@@ -376,6 +402,39 @@ func ResolveWithKey[T any](c *Container, key string) (T, error) {
 	return value.(T), nil
 }
 
+// Resolves all instances of [T].
+//
+// See [Resolve].
+func ResolveAll[T any](c *Container) ([]T, error) {
+	resolutionContext := newResolutionContext(c)
+	resolutionKey := resolutionKey{
+		Type:       reflect.TypeFor[T](),
+		ResolveAll: true,
+	}
+	value, err := resolve(resolutionContext, resolutionKey)
+	if err != nil {
+		return nil, err
+	}
+	return value.([]T), nil
+}
+
+// Resolves all instances of [T] registered with key.
+//
+// See [ResolveWithKey].
+func ResolveAllWithKey[T any](c *Container, key string) ([]T, error) {
+	resolutionContext := newResolutionContext(c)
+	resolutionKey := resolutionKey{
+		Key:        key,
+		Type:       reflect.TypeFor[T](),
+		ResolveAll: true,
+	}
+	value, err := resolve(resolutionContext, resolutionKey)
+	if err != nil {
+		return nil, err
+	}
+	return value.([]T), nil
+}
+
 // Tracks information about undergoing Resolve call.
 type resolutionContext struct {
 	// The container with which [Resolve] was called
@@ -383,7 +442,7 @@ type resolutionContext struct {
 	// This is to apply the injection lifetime rules.
 	mainLifetime dependencyLifetime
 	// This is to track nested resolutions to identify cyclic dependencies.
-	stack []dependencyKey
+	stack []resolutionKey
 	// This is to determine container to add disposables to.
 	dependencyRegistration *dependencyRegistration
 }
@@ -391,12 +450,12 @@ type resolutionContext struct {
 func newResolutionContext(c *Container) resolutionContext {
 	resolutionContext := resolutionContext{
 		container: c,
-		stack:     []dependencyKey{},
+		stack:     []resolutionKey{},
 	}
 	return resolutionContext
 }
 
-func (rc resolutionContext) push(resolutionKey dependencyKey) resolutionContext {
+func (rc resolutionContext) push(resolutionKey resolutionKey) resolutionContext {
 	return resolutionContext{
 		container:    rc.container,
 		mainLifetime: rc.mainLifetime,
@@ -408,19 +467,19 @@ func (rc resolutionContext) isRoot() bool {
 	return len(rc.stack) == 0
 }
 
-func (rc resolutionContext) resolutionKey() dependencyKey {
+func (rc resolutionContext) resolutionKey() resolutionKey {
 	return rc.stack[len(rc.stack)-1]
 }
 
 func (rc resolutionContext) dependencyGraphString() string {
 	typesString := internal.Map(
 		rc.stack,
-		func(t dependencyKey) string { return fmt.Sprintf("%v", t) },
+		func(t resolutionKey) string { return fmt.Sprintf("%v", t) },
 	)
 	return strings.Join(typesString, " -> ")
 }
 
-func resolve(parentResolutionContext resolutionContext, resolutionKey dependencyKey) (any, error) {
+func resolve(parentResolutionContext resolutionContext, resolutionKey resolutionKey) (any, error) {
 	isDisposed, unlock := parentResolutionContext.container.disposed.Load()
 	defer unlock()
 
@@ -431,23 +490,10 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 
 	container := currentResolutionContext.container
 
-	requestedResolutionKey := resolutionKey
-	actualResolutionKey := resolutionKey
-	// TODO 16
-	isSlice := resolutionKey.Type.Kind() == reflect.Slice
-	if isSlice {
-		actualResolutionKey = dependencyKey{
-			Key:  resolutionKey.Key,
-			Type: resolutionKey.Type.Elem(),
-		}
-	}
-
 	// Checking if there is a registration.
-	// Here actualResolutionKey is used instead of requestedResolutionKey, because we
-	// don't expect calls to register[[]T].
-	dependencyRegistration, found := container.getDependencyRegistration(actualResolutionKey)
+	dependencyRegistration, found := container.getDependencyRegistration(resolutionKey.GetRegistrationKey())
 	if !found {
-		return nil, fmt.Errorf("no constructor registered for type %v", actualResolutionKey)
+		return nil, fmt.Errorf("no constructor registered for type %v", resolutionKey)
 	}
 	currentResolutionContext.dependencyRegistration = dependencyRegistration
 
@@ -486,13 +532,13 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 	}
 
 	if cacheContainer != nil {
-		resolutionLock, _ := cacheContainer.resolutionLocks.LoadOrStore(requestedResolutionKey, &sync.Mutex{})
+		resolutionLock, _ := cacheContainer.resolutionLocks.LoadOrStore(resolutionKey, &sync.Mutex{})
 		// By acquiring a lock per resolution type we prevent multiple Singleton or Scoped instances
 		resolutionLock.Lock()
 		defer resolutionLock.Unlock()
 
 		// Checking again for a cached instance because it could be created by other concurrent resolve calls
-		cachedInstance, found := cacheContainer.instances.Load(requestedResolutionKey)
+		cachedInstance, found := cacheContainer.instances.Load(resolutionKey)
 		if found {
 			return cachedInstance, nil
 		}
@@ -502,13 +548,13 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 	if dependencyRegistration.lifetime == scoped {
 		if currentResolutionContext.mainLifetime == singleton {
 			// cannot inject Scoped into Singleton
-			return nil, fmt.Errorf("cannot inject Scoped (%v) dependencies in Singletons (%v)", requestedResolutionKey, parentResolutionContext.resolutionKey())
+			return nil, fmt.Errorf("cannot inject Scoped (%v) dependencies in Singletons (%v)", resolutionKey, parentResolutionContext.resolutionKey())
 		}
 	}
 
 	if dependencyRegistration.lifetime == scoped {
 		if container.isRoot() {
-			return nil, fmt.Errorf("cannot resolve Scoped dependencies from the root Container: %v", requestedResolutionKey)
+			return nil, fmt.Errorf("cannot resolve Scoped dependencies from the root Container: %v", resolutionKey)
 		}
 	}
 
@@ -516,12 +562,13 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 
 	var value reflect.Value
 
-	if isSlice {
+	if resolutionKey.ResolveAll {
 		// When resolutionType is a slice, we resolve all registered dependencies for it,
 		// then return the result for it only if all are successful. Failing fast for simplicity.
-		sliceValue := reflect.MakeSlice(requestedResolutionKey.Type, len(constructors), len(constructors))
+		sliceType := reflect.SliceOf(resolutionKey.Type)
+		sliceValue := reflect.MakeSlice(sliceType, len(constructors), len(constructors))
 		for constructorIndex, constructor := range constructors {
-			value, err := resolveSingle(currentResolutionContext, constructor, actualResolutionKey)
+			value, err := resolveSingle(currentResolutionContext, constructor, resolutionKey)
 			if err != nil {
 				return nil, err
 			}
@@ -534,7 +581,7 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 		// When resolutionType is not a slice, then resolve using the last registration.
 		constructor := constructors[len(constructors)-1]
 
-		singleValue, err := resolveSingle(currentResolutionContext, constructor, actualResolutionKey)
+		singleValue, err := resolveSingle(currentResolutionContext, constructor, resolutionKey)
 		if err != nil {
 			return nil, err
 		}
@@ -542,7 +589,7 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 	}
 
 	if cacheContainer != nil {
-		cacheContainer.instances.Store(requestedResolutionKey, value.Interface())
+		cacheContainer.instances.Store(resolutionKey, value.Interface())
 	}
 
 	return value.Interface(), nil
@@ -556,7 +603,7 @@ func resolve(parentResolutionContext resolutionContext, resolutionKey dependency
 // It also handles constructors that return a (value, error) tuple.
 //
 //	.																																						 .resolutionKey is just for error messages
-func resolveSingle(resolutionContext resolutionContext, constructor functionInfo, resolutionKey dependencyKey) (reflect.Value, error) {
+func resolveSingle(resolutionContext resolutionContext, constructor functionInfo, resolutionKey resolutionKey) (reflect.Value, error) {
 	var zero reflect.Value
 
 	resolutionResult, err := invoke(constructor, resolutionContext, invokeMessageOptions{
@@ -604,8 +651,14 @@ func invoke(function functionInfo, resolutionContext resolutionContext, messageO
 	}
 	callArguments := make([]reflect.Value, len(function.ArgumentTypes))
 	for argumentIndex, argumentType := range function.ArgumentTypes {
-		argumentResolutionKey := dependencyKey{
+		argumentResolutionKey := resolutionKey{
 			Type: argumentType,
+		}
+		if argumentType.Kind() == reflect.Slice {
+			argumentResolutionKey = resolutionKey{
+				Type:       argumentType.Elem(),
+				ResolveAll: true,
+			}
 		}
 
 		argumentValue, err := resolve(resolutionContext, argumentResolutionKey)
@@ -689,33 +742,56 @@ func Dispose(ctx context.Context, c *Container) DisposeResult {
 	}
 }
 
-// Registers a callback to be called on [Start] for all Singleton dependencies
+// Registers a callback to be called on [Start] for a Singleton dependency
 // registered for the type [T].
 //
 // Calling [OnStart] on a non registered type [T] will panic.
 //
 // Start callback will be called in a goroutine, so it can be long running.
 func OnStart[T any](c *Container, callback func(value T)) {
-	registrationKey := dependencyKey{
+	resolutionKey := resolutionKey{
 		Type: reflect.TypeFor[T](),
 	}
-	onStart(c, registrationKey, func(value any) {
+	onStart(c, resolutionKey, func(value any) {
 		callback(value.(T))
 	})
 }
 
 // Same as [OnStart], but with a registration key.
-func OnStartWithKey[T any](c *Container, key string, callback func(value T) error) {
-	registrationKey := dependencyKey{
+func OnStartWithKey[T any](c *Container, key string, callback func(value T)) {
+	resolutionKey := resolutionKey{
 		Type: reflect.TypeFor[T](),
 		Key:  key,
 	}
-	onStart(c, registrationKey, func(value any) {
+	onStart(c, resolutionKey, func(value any) {
 		callback(value.(T))
 	})
 }
 
-func onStart(c *Container, registrationKey dependencyKey, callback startCallback) {
+// Same as [OnStart] but [Start] will be called for all registrations of [T]
+func OnStartAll[T any](c *Container, callback func(value T)) {
+	resolutionKey := resolutionKey{
+		Type:       reflect.TypeFor[T](),
+		ResolveAll: true,
+	}
+	onStart(c, resolutionKey, func(value any) {
+		callback(value.(T))
+	})
+}
+
+// Same as [OnStartWithKey] but [Start] will be called for all registrations of [T] with key
+func OnStartAllWithKey[T any](c *Container, key string, callback func(value T)) {
+	resolutionKey := resolutionKey{
+		Type:       reflect.TypeFor[T](),
+		Key:        key,
+		ResolveAll: true,
+	}
+	onStart(c, resolutionKey, func(value any) {
+		callback(value.(T))
+	})
+}
+
+func onStart(c *Container, resolutionKey resolutionKey, callback startCallback) {
 	isDisposed, unlock := c.disposed.Load()
 	defer unlock()
 
@@ -734,15 +810,15 @@ func onStart(c *Container, registrationKey dependencyKey, callback startCallback
 		panic(fmt.Errorf("cannot register start callback on a child container, only root allowed"))
 	}
 
-	registration, found := c.registry.Load(registrationKey)
+	registration, found := c.registry.Load(resolutionKey.GetRegistrationKey())
 	if !found {
-		panic(fmt.Errorf("you must register a dependency for %v before a start callback", registrationKey))
+		panic(fmt.Errorf("you must register a dependency for %v before a start callback", resolutionKey))
 	}
 	if registration.lifetime != singleton {
 		panic(fmt.Errorf("cannot register callback on a %v dependency, only %v allowed", registration.lifetime, singleton))
 	}
 
-	c.startCallbacks.Store(registrationKey, callback)
+	c.startCallbacks.Store(resolutionKey, callback)
 }
 
 // Calls the callbacks registered with [OnStart] and [OnStartWithKey].
@@ -773,23 +849,25 @@ func Start(c *Container) {
 	startCallbacks := c.startCallbacks.Snapshot()
 	for resolutionKey, start := range startCallbacks {
 		resolutionContext := newResolutionContext(c)
-		// TODO 16
-		resolutionKeyAll := dependencyKey{
-			Key:  resolutionKey.Key,
-			Type: reflect.SliceOf(resolutionKey.Type),
-		}
-		resolvedValue, err := resolve(resolutionContext, resolutionKeyAll)
+
+		resolvedValue, err := resolve(resolutionContext, resolutionKey)
 		if err != nil {
 			panic(fmt.Errorf("failed to start dependency %v: %w", resolutionKey, err))
 		}
-		sliceValue := reflect.ValueOf(resolvedValue)
-		if sliceValue.Kind() != reflect.Slice {
-			panic(fmt.Errorf("failed to start dependency %v: expected resolved value to be a slice", resolutionKey))
+
+		if !resolutionKey.ResolveAll {
+			go start(resolvedValue)
+		} else {
+			sliceValue := reflect.ValueOf(resolvedValue)
+			if sliceValue.Kind() != reflect.Slice {
+				panic(fmt.Errorf("failed to start dependency %v: expected resolved value to be a slice", resolutionKey))
+			}
+
+			for i := range sliceValue.Len() {
+				value := sliceValue.Index(i)
+				go start(value.Interface())
+			}
 		}
 
-		for i := range sliceValue.Len() {
-			value := sliceValue.Index(i)
-			go start(value.Interface())
-		}
 	}
 }

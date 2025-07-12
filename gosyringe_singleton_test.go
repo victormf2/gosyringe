@@ -271,7 +271,7 @@ func TestRegisterSingleton(t *testing.T) {
 			RegisterSingleton[IService](c, NewService)
 			RegisterSingleton[IService](c, NewServiceUnsafe)
 			RegisterSingleton[IService](c, NewOtherService)
-			services, err := Resolve[[]IService](c)
+			services, err := ResolveAll[IService](c)
 			require.NoError(t, err)
 
 			value := 0
@@ -319,7 +319,7 @@ func TestRegisterSingleton(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					instance, err := Resolve[[]IService](c)
+					instance, err := ResolveAll[IService](c)
 					require.NoError(t, err, "resolve failed")
 
 					results <- instance
@@ -368,7 +368,7 @@ func TestRegisterSingleton(t *testing.T) {
 			RegisterSingleton[IService](c, NewService)
 			RegisterSingleton[IService](c, NewServiceError)
 
-			_, err := Resolve[[]IService](c)
+			_, err := ResolveAll[IService](c)
 
 			require.ErrorIs(t, err, customError)
 		})

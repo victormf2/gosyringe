@@ -257,7 +257,7 @@ func TestRegisterScoped(t *testing.T) {
 			RegisterScoped[IService](c, NewService)
 			RegisterScoped[IService](c, NewServiceUnsafe)
 			RegisterScoped[IService](c, NewOtherService)
-			services, err := Resolve[[]IService](CreateChildContainer(c))
+			services, err := ResolveAll[IService](CreateChildContainer(c))
 			require.NoError(t, err)
 
 			value := 0
@@ -307,7 +307,7 @@ func TestRegisterScoped(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					instance, err := Resolve[[]IService](childContainer)
+					instance, err := ResolveAll[IService](childContainer)
 					require.NoError(t, err, "resolve failed")
 
 					results <- instance
@@ -356,7 +356,7 @@ func TestRegisterScoped(t *testing.T) {
 			RegisterScoped[IService](c, NewService)
 			RegisterScoped[IService](c, NewServiceError)
 
-			_, err := Resolve[[]IService](CreateChildContainer(c))
+			_, err := ResolveAll[IService](CreateChildContainer(c))
 
 			require.ErrorIs(t, err, customError)
 		})

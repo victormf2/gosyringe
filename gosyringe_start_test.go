@@ -91,6 +91,8 @@ func TestStart(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				Start(c)
+
+				time.Sleep(10 * time.Millisecond)
 			}()
 		}
 
@@ -99,13 +101,24 @@ func TestStart(t *testing.T) {
 		require.Equal(t, int32(1), startCount.Load())
 	})
 
-	t.Run("should start all registered dependencies for a type", func(t *testing.T) {
+	t.Run("OnStart should start last registered dependency for a type", func(t *testing.T) {
 		t.Parallel()
 
 		c := NewContainer()
-		RegisterSingleton[IStartable](c, NewStartable)
-		RegisterSingleton[IStartable](c, NewStartable)
-		RegisterSingleton[IStartable](c, NewStartable)
+
+		called := [3]bool{}
+		RegisterSingleton[IStartable](c, func() IStartable {
+			called[0] = true
+			return NewStartable()
+		})
+		RegisterSingleton[IStartable](c, func() IStartable {
+			called[1] = true
+			return NewStartable()
+		})
+		RegisterSingleton[IStartable](c, func() IStartable {
+			called[2] = true
+			return NewStartable()
+		})
 		OnStart(c, func(service IStartable) {
 			service.Start()
 		})
@@ -114,7 +127,31 @@ func TestStart(t *testing.T) {
 
 		time.Sleep(10 * time.Millisecond)
 
-		allServices, err := Resolve[[]IStartable](c)
+		service, err := Resolve[IStartable](c)
+		require.NoError(t, err)
+
+		require.False(t, called[0])
+		require.False(t, called[1])
+		require.True(t, called[2])
+		require.True(t, service.HasStarted(), "service 2 has not started")
+	})
+
+	t.Run("OnStartAll should start all registered dependencies for a type", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewContainer()
+		RegisterSingleton[IStartable](c, NewStartable)
+		RegisterSingleton[IStartable](c, NewStartable)
+		RegisterSingleton[IStartable](c, NewStartable)
+		OnStartAll(c, func(service IStartable) {
+			service.Start()
+		})
+
+		Start(c)
+
+		time.Sleep(10 * time.Millisecond)
+
+		allServices, err := ResolveAll[IStartable](c)
 		require.NoError(t, err)
 
 		for i, service := range allServices {
@@ -122,23 +159,57 @@ func TestStart(t *testing.T) {
 		}
 	})
 
-	t.Run("should start all registered dependencies for a key", func(t *testing.T) {
+	t.Run("OnStartWithKey should start last registered dependency for a key", func(t *testing.T) {
 		t.Parallel()
 
 		c := NewContainer()
-		RegisterSingletonWithKey[IStartable](c, "service", NewStartable)
-		RegisterSingletonWithKey[IStartable](c, "service", NewStartable)
-		RegisterSingletonWithKey[IStartable](c, "service", NewStartable)
-		OnStartWithKey(c, "service", func(service IStartable) error {
+
+		called := [3]bool{}
+		RegisterSingletonWithKey[IStartable](c, "service", func() IStartable {
+			called[0] = true
+			return NewStartable()
+		})
+		RegisterSingletonWithKey[IStartable](c, "service", func() IStartable {
+			called[1] = true
+			return NewStartable()
+		})
+		RegisterSingletonWithKey[IStartable](c, "service", func() IStartable {
+			called[2] = true
+			return NewStartable()
+		})
+		OnStartWithKey(c, "service", func(service IStartable) {
 			service.Start()
-			return nil
 		})
 
 		Start(c)
 
 		time.Sleep(10 * time.Millisecond)
 
-		allServices, err := ResolveWithKey[[]IStartable](c, "service")
+		service, err := ResolveWithKey[IStartable](c, "service")
+		require.NoError(t, err)
+
+		require.False(t, called[0])
+		require.False(t, called[1])
+		require.True(t, called[2])
+		require.True(t, service.HasStarted(), "service 2 has not started")
+	})
+
+	t.Run("OnStartAllWithKey should start all registered dependencies for a key", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewContainer()
+		RegisterSingletonWithKey[IStartable](c, "service", NewStartable)
+		RegisterSingletonWithKey[IStartable](c, "service", NewStartable)
+		RegisterSingletonWithKey[IStartable](c, "service", NewStartable)
+		OnStartAllWithKey(c, "service", func(service IStartable) {
+			service.Start()
+		})
+
+		Start(c)
+
+		time.Sleep(10 * time.Millisecond)
+
+		allServices, err := ResolveAllWithKey[IStartable](c, "service")
 		require.NoError(t, err)
 
 		for i, service := range allServices {

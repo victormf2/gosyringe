@@ -228,6 +228,8 @@ func main() {
 
 When resolving a slice instance, the instantiation will occur for every regsitered constructor (or value) for that type in order.
 
+To do this, you call the `ResolveAll*` functions.
+
 ```go
 func main() {
 	c := gosyringe.NewContainer()
@@ -240,7 +242,7 @@ func main() {
 	gosyringe.RegisterValue(c, instance2)
 	gosyringe.RegisterValue(c, instance3)
 
-	resolvedInstances, _ := gosyringe.Resolve[[]IService](c)
+	resolvedInstances, _ := gosyringe.ResolveAll[IService](c)
 
 	fmt.Println(instance1 == resolvedInstances[0]) // true
 	fmt.Println(instance2 == resolvedInstances[1]) // true
@@ -614,3 +616,7 @@ func main() {
 	gosyringe.Dispose(disposeCtx, c) // releasing allocated resources
 }
 ```
+
+## Known issues
+
+- Resolve and ResolveAll don't work together in an expected way. Calling Resolve after ResolveAll (or vice-versa) will resolve different instances for a Singleton constructor. The internal instance cache uses different keys when you use either of both methods.

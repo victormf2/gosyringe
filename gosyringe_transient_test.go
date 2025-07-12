@@ -239,7 +239,7 @@ func TestRegisterTransient(t *testing.T) {
 			RegisterTransient[IService](c, NewService)
 			RegisterTransient[IService](c, NewServiceUnsafe)
 			RegisterTransient[IService](c, NewOtherService)
-			services, err := Resolve[[]IService](c)
+			services, err := ResolveAll[IService](c)
 			require.NoError(t, err)
 
 			value := 0
@@ -287,7 +287,7 @@ func TestRegisterTransient(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					instance, err := Resolve[[]IService](c)
+					instance, err := ResolveAll[IService](c)
 					require.NoError(t, err, "resolve failed")
 
 					results <- instance
@@ -337,7 +337,7 @@ func TestRegisterTransient(t *testing.T) {
 			RegisterTransient[IService](c, NewService)
 			RegisterTransient[IService](c, NewServiceError)
 
-			_, err := Resolve[[]IService](c)
+			_, err := ResolveAll[IService](c)
 
 			require.ErrorIs(t, err, customError)
 		})
