@@ -81,6 +81,20 @@ func (m *SyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
 	return value, false
 }
 
+func (s *SyncMap[K, V]) Remove(key K) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.backMap, key)
+}
+
+func (s *SyncMap[K, V]) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.backMap = map[K]V{}
+}
+
 func (s *SyncMap[K, V]) Snapshot() map[K]V {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

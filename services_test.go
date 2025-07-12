@@ -42,23 +42,31 @@ func NewServiceError() (IService, error) {
 	return nil, customError
 }
 
-type OtherService struct{}
+type OtherService struct {
+	value string
+}
 
 func (s OtherService) GetValue() int {
 	return 13
 }
 
 func NewOtherService() IService {
-	return &OtherService{}
+	return &OtherService{
+		value: uuid.NewString(),
+	}
 }
 
 type IServiceOne interface {
 	GetValueOne() int
 }
-type ServiceOne struct{}
+type ServiceOne struct {
+	value string
+}
 
 func NewServiceOne() IServiceOne {
-	return &ServiceOne{}
+	return &ServiceOne{
+		value: uuid.NewString(),
+	}
 }
 
 func (s ServiceOne) GetValueOne() int {
@@ -68,10 +76,14 @@ func (s ServiceOne) GetValueOne() int {
 type IServiceTwo interface {
 	GetValueTwo() int
 }
-type ServiceTwo struct{}
+type ServiceTwo struct {
+	value string
+}
 
 func NewServiceTwo() (IServiceTwo, error) {
-	return &ServiceTwo{}, nil
+	return &ServiceTwo{
+		value: uuid.NewString(),
+	}, nil
 }
 
 func (s ServiceTwo) GetValueTwo() int {
@@ -82,14 +94,16 @@ type IServiceThree interface {
 	GetValueThree() int
 }
 type ServiceThree struct {
+	value      string
 	serviceOne IServiceOne
 	serviceTwo IServiceTwo
 }
 
 func NewServiceThree(serviceOne IServiceOne, serviceTwo IServiceTwo) IServiceThree {
 	return &ServiceThree{
-		serviceOne,
-		serviceTwo,
+		value:      uuid.NewString(),
+		serviceOne: serviceOne,
+		serviceTwo: serviceTwo,
 	}
 }
 
@@ -101,14 +115,16 @@ type IServiceFive interface {
 	GetValueFive() int
 }
 type ServiceFive struct {
+	value        string
 	serviceTwo   IServiceTwo
 	serviceThree IServiceThree
 }
 
-func NewServiceFive(serviceOne IServiceTwo, serviceThree IServiceThree) IServiceFive {
+func NewServiceFive(serviceTwo IServiceTwo, serviceThree IServiceThree) IServiceFive {
 	return &ServiceFive{
-		serviceOne,
-		serviceThree,
+		value:        uuid.NewString(),
+		serviceTwo:   serviceTwo,
+		serviceThree: serviceThree,
 	}
 }
 

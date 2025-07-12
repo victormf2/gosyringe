@@ -13,7 +13,6 @@
 [x] dispose
 [x] start
 [x] more intuitive API for slices (ResolveAll, ResolveAllWithKey, OnStartAll, OnStartAllWithKey)
-[ ] clear registrations (for overrides)
-[ ] automatically dispose child containers
+[x] clear registrations (for overrides)
 [ ] update gin example with startup
 [ ] improve docs

@@ -871,3 +871,31 @@ func Start(c *Container) {
 
 	}
 }
+
+// Clear all constructors registered with type [T] on this [Container]
+//
+// This can be used for overrides when you want to [ResolveAll]
+func ClearRegistrations[T any](c *Container) {
+	registrationKey := registrationKey{
+		Type: reflect.TypeFor[T](),
+	}
+	c.registry.Remove(registrationKey)
+}
+
+// Clear all constructors registered with type [T] and key on this [Container]
+//
+// This can be used for overrides when you want to [ResolveAllWithKey]
+func ClearRegistrationsWithKey[T any](c *Container, key string) {
+	registrationKey := registrationKey{
+		Type: reflect.TypeFor[T](),
+		Key:  key,
+	}
+	c.registry.Remove(registrationKey)
+}
+
+// Clear all instances resolved with this [Container]
+//
+// This can be useful for tests
+func ClearInstances(c *Container) {
+	c.instances.Clear()
+}
