@@ -28,6 +28,7 @@ type CreateUserOutput struct {
 
 func (h *CreateUserHandler) Handle(input *CreateUserInput) (*CreateUserOutput, error) {
 	h.logger.Infof("Creating user")
+
 	user := &repositories.User{
 		Name:  input.Name,
 		Email: input.Email,
@@ -38,7 +39,7 @@ func (h *CreateUserHandler) Handle(input *CreateUserInput) (*CreateUserOutput, e
 		return nil, err
 	}
 
-	h.logger.Errorf("User created")
+	h.logger.Infof("User created")
 	output := &CreateUserOutput{
 		ID: user.ID,
 	}

@@ -32,7 +32,7 @@ func (h *DeleteUserHandler) Handle(input *DeleteUserInput) (*DeleteUserOutput, e
 		return nil, err
 	}
 
-	h.logger.Errorf("User created")
+	h.logger.Infof("User deleted")
 	output := &DeleteUserOutput{}
 
 	return output, nil

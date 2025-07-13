@@ -1,15 +1,19 @@
 package main
 
 import (
-	"errors"
-	"net/http"
+	"context"
+	"log"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/victormf2/gosyringe"
-	"github.com/victormf2/gosyringe/internal/examples/gin/handlers"
 	"github.com/victormf2/gosyringe/internal/examples/gin/setup"
 )
 
+// Some of this code was taken from the GIN graceful shutdown example
+// and adapted to run with the gosyringe features
+// https://github.com/gin-gonic/examples/blob/9fd0db1d6a7cdfd8dd1e0b163146674ea9d4ecfd/graceful-shutdown/graceful-shutdown/notify-with-context/server.go
 func main() {
 	// First create the root Container
 	c := gosyringe.NewContainer()
@@ -18,108 +22,29 @@ func main() {
 	// but it's usually better to separate that logic in a function, so you
 	// can use it in your tests.
 	setup.RegisterServices(c)
+	setup.RegisterHttpServer(c)
 
-	// Setting up gin with the ContainerMiddleware
-	router := gin.Default()
-	router.Use(ContainerMiddleware(c))
+	// Create context that listens for the interrupt signal from the OS.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-	router.GET("/users/:id", func(c *gin.Context) {
-		// You don't need to manually instantiate your handlers,
-		// just leave it to gosyringe to do the work for you.
-		handler, err := ResolveHandler[*handlers.GetUserByIDHandler](c)
-		if err != nil {
-			c.JSON(500, gin.H{"msg": err.Error()})
-			return
-		}
+	// Start the server with the callback registered with OnStart
+	gosyringe.Start(c)
 
-		input := &handlers.GetUserByIDInput{}
-		err = c.ShouldBindUri(input)
-		if err != nil {
-			c.JSON(400, gin.H{"msg": err.Error()})
-			return
-		}
+	// Listen for the interrupt signal.
+	<-ctx.Done()
 
-		output, err := handler.Handle(input)
-		if err != nil {
-			if errors.Is(err, handlers.ErrUserNotFound) {
-				c.JSON(404, gin.H{"msg": err.Error()})
-			} else {
-				c.JSON(500, gin.H{"msg": err.Error()})
-			}
-			return
-		}
+	// Restore default behavior on the interrupt signal and notify user of shutdown.
+	stop()
+	log.Println("shutting down gracefully, press Ctrl+C again to force")
 
-		c.JSON(http.StatusOK, output)
-	})
+	// The context is used to inform the server it has 5 seconds to finish
+	// the request it is currently handling
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	router.POST("/users", func(c *gin.Context) {
-		handler, err := ResolveHandler[*handlers.CreateUserHandler](c)
-		if err != nil {
-			c.JSON(500, gin.H{"msg": err.Error()})
-			return
-		}
+	// Shutdown the server with the callback registered with OnDispose
+	gosyringe.Dispose(ctx, c)
 
-		input := &handlers.CreateUserInput{}
-		err = c.ShouldBindJSON(input)
-		if err != nil {
-			c.JSON(400, gin.H{"msg": err.Error()})
-			return
-		}
-
-		output, err := handler.Handle(input)
-		if err != nil {
-			c.JSON(500, gin.H{"msg": err.Error()})
-			return
-		}
-
-		c.JSON(http.StatusOK, output)
-	})
-
-	router.PUT("/users", func(c *gin.Context) {
-		handler, err := ResolveHandler[*handlers.UpdateUserHandler](c)
-		if err != nil {
-			c.JSON(500, gin.H{"msg": err.Error()})
-			return
-		}
-
-		input := &handlers.UpdateUserInput{}
-		err = c.ShouldBindJSON(input)
-		if err != nil {
-			c.JSON(400, gin.H{"msg": err.Error()})
-			return
-		}
-
-		output, err := handler.Handle(input)
-		if err != nil {
-			c.JSON(500, gin.H{"msg": err.Error()})
-			return
-		}
-
-		c.JSON(http.StatusOK, output)
-	})
-
-	router.DELETE("/users/:id", func(c *gin.Context) {
-		handler, err := ResolveHandler[*handlers.DeleteUserHandler](c)
-		if err != nil {
-			c.JSON(500, gin.H{"msg": err.Error()})
-			return
-		}
-
-		input := &handlers.DeleteUserInput{}
-		err = c.ShouldBindUri(input)
-		if err != nil {
-			c.JSON(400, gin.H{"msg": err.Error()})
-			return
-		}
-
-		output, err := handler.Handle(input)
-		if err != nil {
-			c.JSON(500, gin.H{"msg": err.Error()})
-			return
-		}
-
-		c.JSON(http.StatusOK, output)
-	})
-
-	router.Run() // listen and serve on 0.0.0.0:8080
+	log.Println("Server exiting")
 }

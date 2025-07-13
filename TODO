@@ -14,5 +14,5 @@
 [x] start
 [x] more intuitive API for slices (ResolveAll, ResolveAllWithKey, OnStartAll, OnStartAllWithKey)
 [x] clear registrations (for overrides)
-[ ] update gin example with startup
+[x] update gin example with startup
 [ ] improve docs
